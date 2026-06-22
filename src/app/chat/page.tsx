@@ -18,12 +18,14 @@ export default function ChatPage() {
   const endRef = useRef<HTMLDivElement>(null);
 
   const SUGGESTIONS = [
+    "What are the four THINK-AI values and what do they mean?",
+    "What is the equity grant for an L7 employee?",
+    "What is the difference between a Thinker, Doer, and Talker rating?",
     "How is EOSB calculated for a 4-year expat who resigns?",
-    "What are the Ramadan working hour rules?",
-    "How long is the Iqama renewal process?",
-    "What is the WPS compliance deadline?",
-    "When does annual leave increase to 30 days?",
-    "What is the sick leave pay structure?",
+    "What level is a Senior Specialist and what is their Mercer alignment?",
+    "What are the steps in the PIP chain before a performance separation?",
+    "What is the pay philosophy and target percentile?",
+    "How does the ESOP vesting schedule work?",
   ];
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
@@ -57,8 +59,8 @@ export default function ChatPage() {
     <>
       <div className="page-header">
         <div>
-          <h1 className="display-font">Ask People</h1>
-          <p>Claude-powered HR Q&A — answers from the THINK-AI People Policy Handbook</p>
+          <h1 className="display-font">Ask People AI</h1>
+          <p>Claude-powered People Q&A — values, grading, ESOP, performance, and Saudi compliance</p>
         </div>
         {messages.length > 0 && (
           <button className="btn btn-outline btn-sm" onClick={() => { setMessages([]); setSessionId(null); }}>
@@ -74,10 +76,10 @@ export default function ChatPage() {
             <div style={{ maxWidth: 640, margin: "0 auto", textAlign: "center" }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>💬</div>
               <h2 style={{ fontFamily: "Cormorant Garamond, serif", fontSize: 24, color: "#0f2140", marginBottom: 6 }}>
-                Ask anything about THINK-AI HR policy
+                Ask anything about THINK-AI People & Policy
               </h2>
               <p style={{ fontSize: 14, color: "#6b7a99", marginBottom: 28 }}>
-                I have the full People Policy Handbook — ask about leave, payroll, GOSI, EOSB, Iqama, performance, or anything else.
+                I know the full People Framework — values, grading (L1-L15), ESOP, Thinker/Doer/Talker ratings, EOSB, Iqama, WPS, and everything in between.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {SUGGESTIONS.map((s) => (

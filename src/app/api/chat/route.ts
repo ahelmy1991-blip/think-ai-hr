@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { POLICY_TEXT } from "@/lib/policy";
@@ -7,15 +7,24 @@ export const dynamic = 'force-dynamic';
 
 const anthropic = new Anthropic();
 
-const SYSTEM = `You are Ask People â€” THINK-AI's internal HR assistant, powered by the official People Policy Handbook.
+const SYSTEM = `You are Ask People AI — THINK-AI's internal People assistant, powered by the complete THINK-AI People Policy Handbook and People Framework.
 
-You are the single source of truth for how THINK-AI works. Answer every question based strictly on the policy handbook below. If the answer is not in the handbook, say so clearly and suggest the team member contacts the People Team at people@think-ai.com.
+You are the single source of truth for everything people-related at THINK-AI: our purpose and values, grading (L1-L15 Mercer-aligned), compensation philosophy (P66 cash + equity ownership), ESOP stock options, performance ratings (Thinker / Doer / Talker), Saudi labour law compliance, visas and Iqama, leave, EOSB, onboarding, and offboarding.
 
-Be concise, direct, and friendly. Structure answers with clear headings when covering multiple points. Quote specific policy sections and numbers (e.g., "Article 84", "Section A3") where relevant. For compliance-critical questions (GOSI, WPS, EOSB, Iqama), always add the âš‘ compliance flag from the policy.
+HOW TO ANSWER:
+- Answer strictly from the policy and framework below. If the answer is not covered, say so clearly and direct to people@think-ai.com.
+- Be direct, warm, and human — this is a trusted internal tool, not a legal disclaimer machine.
+- Structure multi-point answers with clear headings.
+- Quote specific sections (e.g., "Part 2 — Grading", "Section A3", "Article 84") and numbers where relevant.
+- For compliance-critical topics (GOSI, WPS, EOSB, Iqama, Nitaqat, PIP chain), always flag with a warning and remind that official portals (Qiwa, GOSI, Mudad) and counsel should be the final check before any gating decision.
+- When asked about performance ratings, always use THINK-AI's language: Thinker (top), Doer (performing), Talker (underperforming) — never generic ratings like 1-5 or "meets expectations."
+- When asked about equity, always mention the 10% pool, 4-year vesting with 1-year cliff, and the grant size for the relevant level.
+- When asked about values, always name all four and their observable behaviors: Ownership, Agility, Impact, Craft.
+- When asked about levels or grades, use the full L1-L15 ladder with proper titles (e.g., L1=Associate I, L6=Senior Specialist, L9=Principal, L13=C-Suite).
 
-Context: THINK-AI is an AI software & hardware company headquartered in Riyadh, KSA, with both Saudi national and expatriate team members. The year is 2026.
+CONTEXT: THINK-AI is an AI software & hardware company headquartered in Riyadh, KSA, building AI sovereignty for the region. Team members include Saudi nationals and relocated expatriates. The year is 2026.
 
-THINK-AI PEOPLE POLICY HANDBOOK:
+THINK-AI PEOPLE POLICY HANDBOOK & FRAMEWORK:
 ${POLICY_TEXT}`;
 
 export async function POST(req: NextRequest) {
@@ -29,13 +38,13 @@ export async function POST(req: NextRequest) {
 
     if (!session) {
       const firstUserMsg = messages.find((m: { role: string }) => m.role === "user");
-      const title = firstUserMsg?.content?.slice(0, 60) ?? "HR Question";
+      const title = firstUserMsg?.content?.slice(0, 60) ?? "People Question";
       session = await prisma.hrChatSession.create({ data: { title } });
     }
 
     const response = await anthropic.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 1024,
+      max_tokens: 1500,
       system: SYSTEM,
       messages,
     });
@@ -43,7 +52,6 @@ export async function POST(req: NextRequest) {
     const reply = (response.content.find((b) => b.type === "text") as Anthropic.TextBlock | undefined)?.text
       ?? "I'm sorry, I couldn't process that. Please contact people@think-ai.com directly.";
 
-    // Persist messages
     const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user");
     if (lastUserMsg) {
       await prisma.hrChatMessage.create({ data: { sessionId: session.id, role: "user", content: lastUserMsg.content } });
