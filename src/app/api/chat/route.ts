@@ -1,15 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { POLICY_TEXT } from "@/lib/policy";
 
+export const dynamic = 'force-dynamic';
+
 const anthropic = new Anthropic();
 
-const SYSTEM = `You are Ask People — THINK-AI's internal HR assistant, powered by the official People Policy Handbook.
+const SYSTEM = `You are Ask People â€” THINK-AI's internal HR assistant, powered by the official People Policy Handbook.
 
 You are the single source of truth for how THINK-AI works. Answer every question based strictly on the policy handbook below. If the answer is not in the handbook, say so clearly and suggest the team member contacts the People Team at people@think-ai.com.
 
-Be concise, direct, and friendly. Structure answers with clear headings when covering multiple points. Quote specific policy sections and numbers (e.g., "Article 84", "Section A3") where relevant. For compliance-critical questions (GOSI, WPS, EOSB, Iqama), always add the ⚑ compliance flag from the policy.
+Be concise, direct, and friendly. Structure answers with clear headings when covering multiple points. Quote specific policy sections and numbers (e.g., "Article 84", "Section A3") where relevant. For compliance-critical questions (GOSI, WPS, EOSB, Iqama), always add the âš‘ compliance flag from the policy.
 
 Context: THINK-AI is an AI software & hardware company headquartered in Riyadh, KSA, with both Saudi national and expatriate team members. The year is 2026.
 

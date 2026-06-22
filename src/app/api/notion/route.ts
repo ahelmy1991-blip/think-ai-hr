@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { Client } from "@notionhq/client";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BlockObjectRequest = any;
 import { prisma } from "@/lib/db";
 import { POLICY_SECTIONS } from "@/lib/policy";
 import { ONBOARDING_PHASES } from "@/lib/onboarding-items";
+
+export const dynamic = 'force-dynamic';
 
 function getNotionClient() {
   const token = process.env.NOTION_TOKEN;
@@ -29,8 +31,8 @@ export async function POST(req: NextRequest) {
             object: "block",
             type: "callout",
             callout: {
-              rich_text: [{ text: { content: "V1.0 · Effective 1 July 2026 · Owner: People Team · Riyadh, KSA" } }],
-              icon: { type: "emoji", emoji: "📋" },
+              rich_text: [{ text: { content: "V1.0 Â· Effective 1 July 2026 Â· Owner: People Team Â· Riyadh, KSA" } }],
+              icon: { type: "emoji", emoji: "ðŸ“‹" },
               color: "blue_background",
             },
           },
@@ -58,8 +60,8 @@ export async function POST(req: NextRequest) {
           object: "block",
           type: "callout",
           callout: {
-            rich_text: [{ type: "text", text: { content: `Employee: ${employee.name} · Start: ${employee.startDate.toLocaleDateString()} · ${employee.isExpat ? "Expatriate" : "Saudi National"}` } }],
-            icon: { type: "emoji", emoji: "👋" },
+            rich_text: [{ type: "text", text: { content: `Employee: ${employee.name} Â· Start: ${employee.startDate.toLocaleDateString()} Â· ${employee.isExpat ? "Expatriate" : "Saudi National"}` } }],
+            icon: { type: "emoji", emoji: "ðŸ‘‹" },
             color: "green_background",
           },
         } as BlockObjectRequest,
@@ -103,8 +105,8 @@ export async function POST(req: NextRequest) {
           object: "block",
           type: "callout",
           callout: {
-            rich_text: [{ type: "text", text: { content: `Generated: ${new Date().toLocaleDateString()} · ${items.length} open items` } }],
-            icon: { type: "emoji", emoji: "⚠️" },
+            rich_text: [{ type: "text", text: { content: `Generated: ${new Date().toLocaleDateString()} Â· ${items.length} open items` } }],
+            icon: { type: "emoji", emoji: "âš ï¸" },
             color: "red_background",
           },
         } as BlockObjectRequest,
@@ -117,7 +119,7 @@ export async function POST(req: NextRequest) {
           object: "block",
           type: "to_do",
           to_do: {
-            rich_text: [{ type: "text", text: { content: `[${status}] ${item.title}${item.employee ? ` — ${item.employee.name}` : ""} · Due: ${item.dueDate.toLocaleDateString()}` } }],
+            rich_text: [{ type: "text", text: { content: `[${status}] ${item.title}${item.employee ? ` â€” ${item.employee.name}` : ""} Â· Due: ${item.dueDate.toLocaleDateString()}` } }],
             checked: false,
           },
         } as BlockObjectRequest);
@@ -125,7 +127,7 @@ export async function POST(req: NextRequest) {
 
       const page = await notion.pages.create({
         parent: { page_id: parent },
-        properties: { title: { title: [{ text: { content: `HR Compliance Report — ${new Date().toLocaleDateString()}` } }] } },
+        properties: { title: { title: [{ text: { content: `HR Compliance Report â€” ${new Date().toLocaleDateString()}` } }] } },
         children: blocks,
       });
       return NextResponse.json({ url: (page as { url: string }).url, pageId: page.id });
