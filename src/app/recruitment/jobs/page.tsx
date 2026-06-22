@@ -19,7 +19,7 @@ interface Job {
 }
 
 const DEPARTMENTS = ["Engineering","Product","Design","Data Science","Operations","Finance","People","Sales","Marketing"];
-const LEVELS = ["L1","L2","L3","L4","L5"];
+const LEVELS = ["L5","L6","L7","L8","L9","L10","L11","L12","L13","L14","L15"];
 const COUNTRIES = ["Saudi Arabia","UAE","Egypt","Jordan","Pakistan","India","Tunisia","Morocco","Lebanon","UK","Germany","USA","Canada"];
 
 function linkedinSearchUrl(job: Job): string {

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const employee = await prisma.hrEmployee.create({
       data: {
         name, email, role,
-        level: level || "L2",
+        level: level || "L6",
         department: department || "Engineering",
         isExpat: Boolean(isExpat),
         nationality: nationality || null,

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       data: {
         title,
         department: department || "Engineering",
-        level: level || "L3",
+        level: level || "L7",
         location: location || "Riyadh, KSA",
         jobType: jobType || "full-time",
         description,

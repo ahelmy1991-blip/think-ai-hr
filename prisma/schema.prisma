@@ -13,7 +13,7 @@ model HrEmployee {
   name        String
   email       String   @unique
   role        String
-  level       String   @default("L2")
+  level       String   @default("L6")
   department  String   @default("Engineering")
   isExpat     Boolean  @default(false)
   nationality String?
@@ -83,7 +83,7 @@ model HrJob {
   id              String   @id @default(cuid())
   title           String
   department      String   @default("Engineering")
-  level           String   @default("L3")
+  level           String   @default("L7")
   location        String   @default("Riyadh, KSA")
   jobType         String   @default("full-time")
   description     String   @db.Text
