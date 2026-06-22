@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Client } from "@notionhq/client";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BlockObjectRequest = any;
@@ -22,7 +22,6 @@ export async function POST(req: NextRequest) {
     if (!parent) return NextResponse.json({ error: "parentPageId or NOTION_PARENT_PAGE_ID required" }, { status: 400 });
 
     if (type === "policy_index") {
-      // Export full policy index to Notion
       const page = await notion.pages.create({
         parent: { page_id: parent },
         properties: { title: { title: [{ text: { content: "THINK-AI People Policy Handbook" } }] } },
@@ -31,16 +30,16 @@ export async function POST(req: NextRequest) {
             object: "block",
             type: "callout",
             callout: {
-              rich_text: [{ text: { content: "V1.0 Â· Effective 1 July 2026 Â· Owner: People Team Â· Riyadh, KSA" } }],
-              icon: { type: "emoji", emoji: "ðŸ“‹" },
+              rich_text: [{ type: "text", text: { content: "V1.0 - Effective 1 July 2026 - Owner: People Team - Riyadh, KSA" } }],
+              icon: { type: "emoji", emoji: "📋" },
               color: "blue_background",
             },
-          },
+          } as BlockObjectRequest,
           ...POLICY_SECTIONS.map((s) => ({
             object: "block" as const,
             type: "bulleted_list_item" as const,
             bulleted_list_item: {
-              rich_text: [{ text: { content: `${s.icon} ${s.id}: ${s.title}` } }],
+              rich_text: [{ type: "text", text: { content: `${s.id}: ${s.title}` } }],
             },
           })),
         ],
@@ -60,8 +59,8 @@ export async function POST(req: NextRequest) {
           object: "block",
           type: "callout",
           callout: {
-            rich_text: [{ type: "text", text: { content: `Employee: ${employee.name} Â· Start: ${employee.startDate.toLocaleDateString()} Â· ${employee.isExpat ? "Expatriate" : "Saudi National"}` } }],
-            icon: { type: "emoji", emoji: "ðŸ‘‹" },
+            rich_text: [{ type: "text", text: { content: `Employee: ${employee.name} - Start: ${employee.startDate.toLocaleDateString()} - ${employee.isExpat ? "Expatriate" : "Saudi National"}` } }],
+            icon: { type: "emoji", emoji: "👋" },
             color: "green_background",
           },
         } as BlockObjectRequest,
@@ -105,8 +104,8 @@ export async function POST(req: NextRequest) {
           object: "block",
           type: "callout",
           callout: {
-            rich_text: [{ type: "text", text: { content: `Generated: ${new Date().toLocaleDateString()} Â· ${items.length} open items` } }],
-            icon: { type: "emoji", emoji: "âš ï¸" },
+            rich_text: [{ type: "text", text: { content: `Generated: ${new Date().toLocaleDateString()} - ${items.length} open items` } }],
+            icon: { type: "emoji", emoji: "⚠️" },
             color: "red_background",
           },
         } as BlockObjectRequest,
@@ -119,7 +118,7 @@ export async function POST(req: NextRequest) {
           object: "block",
           type: "to_do",
           to_do: {
-            rich_text: [{ type: "text", text: { content: `[${status}] ${item.title}${item.employee ? ` â€” ${item.employee.name}` : ""} Â· Due: ${item.dueDate.toLocaleDateString()}` } }],
+            rich_text: [{ type: "text", text: { content: `[${status}] ${item.title}${item.employee ? ` - ${item.employee.name}` : ""} - Due: ${item.dueDate.toLocaleDateString()}` } }],
             checked: false,
           },
         } as BlockObjectRequest);
@@ -127,7 +126,7 @@ export async function POST(req: NextRequest) {
 
       const page = await notion.pages.create({
         parent: { page_id: parent },
-        properties: { title: { title: [{ text: { content: `HR Compliance Report â€” ${new Date().toLocaleDateString()}` } }] } },
+        properties: { title: { title: [{ text: { content: `HR Compliance Report - ${new Date().toLocaleDateString()}` } }] } },
         children: blocks,
       });
       return NextResponse.json({ url: (page as { url: string }).url, pageId: page.id });

@@ -55,19 +55,19 @@ export async function POST(req: NextRequest) {
     const complianceItems = [
       {
         type: "probation_review",
-        title: `${name} â€” 30-day probation review`,
+        title: `${name} — 30-day probation review`,
         employeeId: employee.id,
         dueDate: new Date(new Date(startDate).getTime() + 30 * 24 * 60 * 60 * 1000),
       },
       {
         type: "probation_review",
-        title: `${name} â€” 60-day probation review`,
+        title: `${name} — 60-day probation review`,
         employeeId: employee.id,
         dueDate: new Date(new Date(startDate).getTime() + 60 * 24 * 60 * 60 * 1000),
       },
       {
         type: "probation_decision",
-        title: `${name} â€” Probation decision (before day 180)`,
+        title: `${name} — Probation decision (before day 180)`,
         employeeId: employee.id,
         dueDate: new Date(new Date(startDate).getTime() + 170 * 24 * 60 * 60 * 1000),
       },
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     if (isExpat && iqamaExpiry) {
       complianceItems.push({
         type: "iqama_renewal",
-        title: `${name} â€” Iqama renewal`,
+        title: `${name} — Iqama renewal`,
         employeeId: employee.id,
         dueDate: new Date(new Date(iqamaExpiry).getTime() - 3 * 24 * 60 * 60 * 1000),
       });
