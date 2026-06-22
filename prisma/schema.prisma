@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model HrEmployee {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  role        String
+  level       String   @default("L2")
+  department  String   @default("Engineering")
+  isExpat     Boolean  @default(false)
+  nationality String?
+  startDate   DateTime
+  status      String   @default("probation")
+  iqamaExpiry DateTime?
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  checklists      HrOnboardingChecklist[]
+  complianceItems HrComplianceItem[]
+
+  @@map("hr_employees")
+}
+
+model HrOnboardingChecklist {
+  id         String     @id @default(cuid())
+  employeeId String
+  employee   HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  phase      String
+  items      Json
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@unique([employeeId, phase])
+  @@map("hr_onboarding_checklists")
+}
+
+model HrComplianceItem {
+  id          String      @id @default(cuid())
+  type        String
+  title       String
+  employeeId  String?
+  employee    HrEmployee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  dueDate     DateTime
+  status      String      @default("pending")
+  notes       String?     @db.Text
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@map("hr_compliance_items")
+}
+
+model HrChatSession {
+  id        String          @id @default(cuid())
+  title     String?
+  createdAt DateTime        @default(now())
+  messages  HrChatMessage[]
+
+  @@map("hr_chat_sessions")
+}
+
+model HrChatMessage {
+  id        String        @id @default(cuid())
+  sessionId String
+  session   HrChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String
+  content   String        @db.Text
+  createdAt DateTime      @default(now())
+
+  @@map("hr_chat_messages")
+}
+
+// ── Recruitment / ATS ──────────────────────────────────────────────────────
+
+model HrJob {
+  id              String   @id @default(cuid())
+  title           String
+  department      String   @default("Engineering")
+  level           String   @default("L3")
+  location        String   @default("Riyadh, KSA")
+  jobType         String   @default("full-time")
+  description     String   @db.Text
+  requirements    Json     @default("[]")
+  status          String   @default("open")
+  targetCountries Json     @default("[]")
+  minYearsExp     Int      @default(3)
+  maxYearsExp     Int      @default(10)
+  specialty       String   @default("")
+  preferAIExp     Boolean  @default(true)
+  headcount       Int      @default(1)
+  createdAt       DateTime @default(now())
+
+  candidates HrCandidate[]
+
+  @@map("hr_jobs")
+}
+
+model HrCandidate {
+  id                 String   @id @default(cuid())
+  jobId              String?
+  job                HrJob?   @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  name               String
+  email              String?
+  phone              String?
+  linkedinUrl        String?
+  currentRole        String?
+  currentCompany     String?
+  country            String?
+  city               String?
+  yearsExperience    Int?
+  specialty          String?
+  culturalBackground String?
+  hasAICompanyExp    Boolean  @default(false)
+  aiCompanies        Json     @default("[]")
+  skills             Json     @default("[]")
+  education          String?
+  languages          Json     @default("[]")
+  matchScore         Float?
+  matchNotes         String?  @db.Text
+  stage              String   @default("sourced")
+  profileText        String?  @db.Text
+  notes              String?  @db.Text
+  linkedinImported   Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("hr_candidates")
+}
