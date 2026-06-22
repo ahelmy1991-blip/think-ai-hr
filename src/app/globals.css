@@ -440,3 +440,129 @@ body {
   .main-content { margin-left: 0; }
   .page-body { padding: 16px; }
 }
+
+/* ── New feature styles ── */
+
+/* Hero banner */
+.hero-banner {
+  background: linear-gradient(135deg, var(--navy-950) 0%, var(--navy-800) 60%, #1a3a6e 100%);
+  padding: 40px 40px 0;
+  position: relative;
+  overflow: hidden;
+}
+.hero-banner::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 300px; height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(232,201,122,0.08) 0%, transparent 70%);
+}
+
+/* Value cards */
+.value-card {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e9f0;
+  border-left: 4px solid var(--gold-500);
+  padding: 20px 24px;
+  transition: all 0.2s;
+  cursor: default;
+}
+.value-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 28px rgba(15,33,64,0.1);
+  border-left-color: var(--navy-700);
+}
+.value-card.v-agility { border-left-color: #3b82f6; }
+.value-card.v-agility:hover { border-left-color: #1d4ed8; }
+.value-card.v-impact { border-left-color: #f59e0b; }
+.value-card.v-impact:hover { border-left-color: #d97706; }
+.value-card.v-craft { border-left-color: #8b5cf6; }
+.value-card.v-craft:hover { border-left-color: #6d28d9; }
+
+/* Grade table track colors */
+.track-ic { background: white; }
+.track-fork { background: #f0f9ff; }
+.track-mgmt { background: #f8fafc; }
+.track-exec { background: #f5f3ff; }
+.track-founder { background: #fffbeb; }
+
+/* Agent selector */
+.agent-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+.agent-item:hover {
+  background: #f4f6f9;
+  border-color: #e5e9f0;
+}
+.agent-item.active {
+  background: var(--navy-800);
+  border-color: var(--navy-700);
+}
+.agent-item.active .agent-name { color: var(--gold-400); }
+.agent-item.active .agent-tagline { color: rgba(255,255,255,0.5); }
+
+/* Pay bar */
+.pay-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: #e5e9f0;
+  overflow: hidden;
+}
+.pay-bar-cash { background: var(--navy-700); height: 100%; border-radius: 4px; }
+.pay-bar-equity { background: var(--gold-500); height: 100%; border-radius: 4px; margin-left: auto; }
+
+/* Performance rating cards */
+.rating-card {
+  border-radius: 12px;
+  border: 2px solid;
+  padding: 20px;
+}
+.rating-thinker { border-color: var(--gold-500); background: #fffbeb; }
+.rating-doer { border-color: var(--navy-700); background: #f0f4ff; }
+.rating-talker { border-color: #dc2626; background: #fef2f2; }
+
+/* Section headers */
+.section-heading {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--navy-900);
+  margin-bottom: 4px;
+}
+.section-sub {
+  font-size: 14px;
+  color: #6b7a99;
+  margin-bottom: 28px;
+}
+
+/* Agents chat layout */
+.agents-layout {
+  display: flex;
+  height: calc(100vh - 0px);
+  overflow: hidden;
+}
+.agents-sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: white;
+  border-right: 1px solid #e5e9f0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.agents-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #f4f6f9;
+  overflow: hidden;
+}

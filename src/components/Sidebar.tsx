@@ -5,6 +5,10 @@ import { usePathname } from "next/navigation";
 const NAV = [
   { section: "Overview", links: [
     { href: "/", label: "Dashboard", icon: "⬛" },
+    { href: "/company", label: "Company & Values", icon: "🌟" },
+  ]},
+  { section: "AI Agents", links: [
+    { href: "/agents", label: "All Agents", icon: "🤖" },
   ]},
   { section: "People Ops", links: [
     { href: "/chat", label: "Ask People (AI)", icon: "💬" },
