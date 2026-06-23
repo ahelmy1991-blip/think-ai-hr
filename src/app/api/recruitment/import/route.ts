@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 const anthropic = new Anthropic();
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
   try {
     const { profileText, linkedinUrl, jobId } = await req.json();
     if (!profileText?.trim()) {
-      return NextResponse.json({ error: "profileText required â€” paste the LinkedIn profile content" }, { status: 400 });
+      return NextResponse.json({ error: “profileText required — paste the LinkedIn profile content” }, { status: 400 });
     }
 
     // Use Claude to extract structured data from the profile text

@@ -14,9 +14,19 @@ export default function PoliciesPage() {
 
   function extractSection(sectionId: string): string {
     const lines = POLICY_TEXT.split("\n");
-    const startIdx = lines.findIndex((l) => l.includes(`SECTION ${sectionId}:`));
-    if (startIdx === -1) return "Section content not found.";
-    const endIdx = lines.findIndex((l, i) => i > startIdx && l.startsWith("━") && lines[i + 1]?.startsWith("SECTION"));
+    // "Part 1" → look for "PART 1:", others → look for "SECTION A1:" etc.
+    let searchTerm: string;
+    if (sectionId.startsWith("Part ")) {
+      searchTerm = `PART ${sectionId.replace("Part ", "")}:`;
+    } else if (sectionId === "G") {
+      searchTerm = `SECTION G:`;
+    } else {
+      searchTerm = `SECTION ${sectionId}:`;
+    }
+    const startIdx = lines.findIndex((l) => l.toUpperCase().includes(searchTerm.toUpperCase()));
+    if (startIdx === -1) return `Section ${sectionId} — content not found in policy text.`;
+    // Find next ━━━ divider line
+    const endIdx = lines.findIndex((l, i) => i > startIdx + 2 && l.startsWith("━"));
     const sectionLines = endIdx === -1 ? lines.slice(startIdx) : lines.slice(startIdx, endIdx);
     return sectionLines.join("\n").trim();
   }
