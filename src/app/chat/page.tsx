@@ -6,14 +6,18 @@ interface Message { role: "user" | "assistant"; content: string }
 function renderMarkdown(text: string) {
   return text
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`(.*?)`/g, "<code style='background:#f1f5f9;padding:1px 4px;border-radius:3px;font-family:monospace;font-size:12px'>$1</code>")
+    .replace(/^### (.+)$/gm, "<h3 style='font-size:14px;font-weight:600;color:#0a1628;margin:12px 0 4px'>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2 style='font-size:15px;font-weight:700;color:#0a1628;margin:14px 0 5px'>$1</h2>")
+    .replace(/^- (.+)$/gm, "<div style='display:flex;gap:6px;margin:2px 0'><span style='color:#d4a843;flex-shrink:0'>•</span><span>$1</span></div>")
+    .replace(/`([^`]+)`/g, "<code style='background:#f1f5f9;padding:1px 5px;border-radius:3px;font-family:monospace;font-size:12px'>$1</code>")
+    .replace(/\n\n/g, "<br/><br/>")
     .replace(/\n/g, "<br/>");
 }
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -28,17 +32,23 @@ export default function ChatPage() {
     "How does the ESOP vesting schedule work?",
   ];
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streaming]);
 
   async function send(text?: string) {
-    const q = text ?? input.trim();
-    if (!q) return;
+    const q = (text ?? input).trim();
+    if (!q || streaming) return;
     setInput("");
+
     const newMessages: Message[] = [...messages, { role: "user", content: q }];
-    setMessages(newMessages);
-    setLoading(true);
+    const withPlaceholder: Message[] = [...newMessages, { role: "assistant", content: "" }];
+    setMessages(withPlaceholder);
+    setStreaming(true);
+
+    let buffer = "";
+    let fullReply = "";
+
     try {
-      const r = await fetch("/api/chat", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -46,13 +56,56 @@ export default function ChatPage() {
           sessionId,
         }),
       });
-      const data = await r.json();
-      setMessages([...newMessages, { role: "assistant", content: data.reply }]);
-      if (data.sessionId && !sessionId) setSessionId(data.sessionId);
-    } catch {
-      setMessages([...newMessages, { role: "assistant", content: "Something went wrong. Please try again." }]);
+
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+          try {
+            const parsed: { text?: string; done?: boolean; sessionId?: string; error?: string } = JSON.parse(raw);
+            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.text) {
+              fullReply += parsed.text;
+              const snapshot = fullReply;
+              setMessages((prev) => {
+                const next = [...prev];
+                if (next.length > 0 && next[next.length - 1].role === "assistant") {
+                  next[next.length - 1] = { role: "assistant", content: snapshot };
+                }
+                return next;
+              });
+            }
+            if (parsed.sessionId && !sessionId) setSessionId(parsed.sessionId);
+          } catch { /* non-JSON line, skip */ }
+        }
+      }
+
+      if (!fullReply) throw new Error("Empty response");
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => {
+        const next = [...prev];
+        if (next.length > 0 && next[next.length - 1].role === "assistant") {
+          next[next.length - 1] = { role: "assistant", content: `Sorry — ${errMsg} Please try again.` };
+        }
+        return next;
+      });
+    } finally {
+      setStreaming(false);
     }
-    setLoading(false);
   }
 
   return (
@@ -62,7 +115,7 @@ export default function ChatPage() {
           <h1 className="display-font">Ask People AI</h1>
           <p>Claude-powered People Q&A — values, grading, ESOP, performance, and Saudi compliance</p>
         </div>
-        {messages.length > 0 && (
+        {(messages.length > 0 || sessionId) && (
           <button className="btn btn-outline btn-sm" onClick={() => { setMessages([]); setSessionId(null); }}>
             New Chat
           </button>
@@ -98,19 +151,26 @@ export default function ChatPage() {
                 {m.role === "assistant" && (
                   <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4, paddingLeft: 4 }}>
                     People AI · THINK-AI Policy
+                    {sessionId && <span style={{ marginLeft: 8, color: "#86efac", fontSize: 10 }}>● saved</span>}
                   </div>
                 )}
-                <div className={m.role === "user" ? "chat-bubble-user" : "chat-bubble-ai"}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                {m.role === "user" ? (
+                  <div className="chat-bubble-user">{m.content}</div>
+                ) : (
+                  <div className="chat-bubble-ai">
+                    {m.content === "" ? (
+                      <span style={{ color: "#94a3b8" }}>
+                        <span style={{ animation: "pulse 1.2s infinite", display: "inline-block" }}>●</span>
+                        {" "}<span style={{ animation: "pulse 1.2s 0.2s infinite", display: "inline-block" }}>●</span>
+                        {" "}<span style={{ animation: "pulse 1.2s 0.4s infinite", display: "inline-block" }}>●</span>
+                      </span>
+                    ) : (
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                    )}
+                  </div>
+                )}
               </div>
             ))}
-            {loading && (
-              <div style={{ display: "flex", alignItems: "flex-start" }}>
-                <div className="chat-bubble-ai" style={{ color: "#94a3b8" }}>
-                  <span>●&nbsp;</span><span style={{ animation: "pulse 1s infinite", display: "inline-block" }}>●</span><span>&nbsp;●</span>
-                </div>
-              </div>
-            )}
             <div ref={endRef} />
           </div>
         </div>
@@ -123,16 +183,16 @@ export default function ChatPage() {
               placeholder="Ask about leave policy, EOSB, Iqama, WPS, performance, onboarding..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
-              disabled={loading}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              disabled={streaming}
               style={{ flex: 1 }}
             />
-            <button className="btn btn-primary" onClick={() => send()} disabled={loading || !input.trim()}>
-              Send
+            <button className="btn btn-primary" onClick={() => send()} disabled={streaming || !input.trim()}>
+              {streaming ? "…" : "Send"}
             </button>
           </div>
           <div style={{ maxWidth: 720, margin: "6px auto 0", fontSize: 11, color: "#94a3b8", textAlign: "center" }}>
-            Answers based on the THINK-AI People Policy Handbook v1.0 · Not legal advice · Contact people@think-ai.com for case-specific guidance
+            Answers based on the THINK-AI People Policy Handbook v1.0 · Not legal advice · Contact people@think-ai.com for guidance
           </div>
         </div>
       </div>

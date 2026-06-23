@@ -133,3 +133,37 @@ model HrCandidate {
 
   @@map("hr_candidates")
 }
+
+model HrAgentSession {
+  id        String           @id @default(cuid())
+  agentId   String
+  agentName String
+  title     String?
+  createdAt DateTime         @default(now())
+  messages  HrAgentMessage[]
+
+  @@map("hr_agent_sessions")
+}
+
+model HrAgentMessage {
+  id        String         @id @default(cuid())
+  sessionId String
+  session   HrAgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String
+  content   String         @db.Text
+  createdAt DateTime       @default(now())
+
+  @@map("hr_agent_messages")
+}
+
+model HrUploadLog {
+  id         String   @id @default(cuid())
+  filename   String?
+  totalRows  Int      @default(0)
+  created    Int      @default(0)
+  failed     Int      @default(0)
+  errors     Json     @default("[]")
+  createdAt  DateTime @default(now())
+
+  @@map("hr_upload_logs")
+}
