@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 
@@ -7,7 +7,6 @@ export const maxDuration = 60;
 
 const anthropic = new Anthropic();
 
-// Known AI companies list for detection
 const AI_COMPANIES = [
   "openai","anthropic","google deepmind","deepmind","google ai","meta ai","microsoft ai",
   "mistral","cohere","stability ai","midjourney","hugging face","scale ai",
@@ -27,10 +26,9 @@ export async function POST(req: NextRequest) {
   try {
     const { profileText, linkedinUrl, jobId } = await req.json();
     if (!profileText?.trim()) {
-      return NextResponse.json({ error: “profileText required — paste the LinkedIn profile content” }, { status: 400 });
+      return NextResponse.json({ error: "profileText required - paste the LinkedIn profile content" }, { status: 400 });
     }
 
-    // Use Claude to extract structured data from the profile text
     const response = await anthropic.messages.create({
       model: "claude-opus-4-8",
       max_tokens: 1000,
@@ -56,7 +54,7 @@ Return ONLY a valid JSON object with these exact fields (use null for missing da
 }
 
 For "specialty": summarize the main area (e.g., "Computer Vision", "NLP", "MLOps", "Embedded AI", "Full-Stack AI", "Hardware Design").
-For "culturalBackground": based on the name and background, infer likely cultural/regional background (e.g., "Arab/Middle Eastern", "South Asian", "East Asian", "Western", "North African"). This is used for cultural fit and KSA work visa planning. Be respectful and factual.
+For "culturalBackground": based on name and background, infer likely cultural/regional background (e.g., "Arab/Middle Eastern", "South Asian", "East Asian", "Western", "North African"). Used for KSA work visa planning.
 For "aiCompanies": list any companies that work in AI/ML from their experience.
 For "languages": include Arabic if name/background suggests Arabic speaker.
 Return ONLY the JSON, no markdown, no explanation.`,
@@ -69,12 +67,10 @@ Return ONLY the JSON, no markdown, no explanation.`,
     try {
       parsed = JSON.parse(rawText);
     } catch {
-      // Try to extract JSON from response
       const match = rawText.match(/\{[\s\S]*\}/);
       if (match) parsed = JSON.parse(match[0]);
     }
 
-    // Also detect AI companies from the raw text
     const detectedAICompanies = detectAICompanies(profileText);
     const aiSet = new Set<string>([
       ...((parsed.aiCompanies as string[]) || []),

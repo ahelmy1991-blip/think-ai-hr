@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
           model: "claude-opus-4-8",
           max_tokens: 1500,
           system: SYSTEM,
-          messages,
+          messages: messages as { role: "user" | "assistant"; content: string }[],
         });
 
         for await (const chunk of aiStream) {

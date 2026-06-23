@@ -1,15 +1,15 @@
 "use client";
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const params = useSearchParams();
 
-  useEffect(() => { document.title = "THINK-AI People Hub — Login"; }, []);
+  useEffect(() => { document.title = "THINK-AI People Hub - Login"; }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,7 +31,7 @@ export default function LoginPage() {
         setPassword("");
       }
     } catch {
-      setError("Network error — please try again");
+      setError("Network error - please try again");
     }
     setLoading(false);
   }
@@ -47,7 +47,6 @@ export default function LoginPage() {
         width: "100%", maxWidth: 420,
         boxShadow: "0 24px 64px rgba(0,0,0,0.3)",
       }}>
-        {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 10,
@@ -87,7 +86,7 @@ export default function LoginPage() {
             />
             {error && (
               <div style={{ fontSize: 12.5, color: "#ef4444", marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <span>⚠</span> {error}
+                <span>!</span> {error}
               </div>
             )}
           </div>
@@ -113,5 +112,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0a1628" }}>
+        <div style={{ color: "#e8c97a", fontFamily: "Cormorant Garamond, serif", fontSize: 20 }}>THINK-AI</div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
