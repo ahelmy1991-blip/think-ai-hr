@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { POLICY_TEXT } from "@/lib/policy";
+import { randomUUID } from "crypto";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -15,7 +16,7 @@ You are the single source of truth for everything people-related at THINK-AI: pu
 HOW TO ANSWER:
 - Answer strictly from the policy and framework below. If not covered, direct to people@think-ai.com.
 - Be direct, warm, and human. Structure multi-point answers with clear headings.
-- Quote specific sections (e.g., "Part 2 — Grading", "Section A3", "Article 84") where relevant.
+- Quote specific sections (e.g., "Part 2 - Grading", "Section A3", "Article 84") where relevant.
 - For compliance-critical topics (GOSI, WPS, EOSB, Iqama, Nitaqat, PIP chain), always flag with a warning and remind that official portals (Qiwa, GOSI, Mudad) and counsel should be the final check.
 - Always use THINK-AI vocabulary: Thinker/Doer/Talker for ratings; Ownership/Agility/Impact/Craft for values.
 - When asked about levels, use the full L1-L15 ladder with proper titles.
@@ -36,17 +37,21 @@ export async function POST(req: NextRequest) {
   const { messages, sessionId: incomingSessionId } = body;
   if (!messages?.length) return NextResponse.json({ error: "messages required" }, { status: 400 });
 
-  let session = incomingSessionId
-    ? await prisma.hrChatSession.findUnique({ where: { id: incomingSessionId } })
-    : null;
-
-  if (!session) {
-    const firstUserMsg = messages.find((m) => m.role === "user");
-    const title = (firstUserMsg?.content ?? "People Question").slice(0, 60);
-    session = await prisma.hrChatSession.create({ data: { title } });
+  // DB session — non-fatal so a DB issue never blocks the AI response
+  let sessionId = incomingSessionId ?? "";
+  try {
+    if (!sessionId) {
+      const firstUserMsg = messages.find((m) => m.role === "user");
+      const title = (firstUserMsg?.content ?? "People Question").slice(0, 60);
+      const session = await prisma.hrChatSession.create({ data: { title } });
+      sessionId = session.id;
+    }
+  } catch (dbErr) {
+    console.error("DB session create (non-fatal):", dbErr);
+    if (!sessionId) sessionId = randomUUID();
   }
 
-  const capturedSession = session;
+  const capturedSessionId = sessionId;
   const enc = new TextEncoder();
 
   const responseStream = new ReadableStream({
@@ -68,16 +73,20 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Persist to DB
-        const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-        if (lastUserMsg) {
-          await prisma.hrChatMessage.create({ data: { sessionId: capturedSession.id, role: "user", content: lastUserMsg.content } });
-        }
-        if (fullText) {
-          await prisma.hrChatMessage.create({ data: { sessionId: capturedSession.id, role: "assistant", content: fullText } });
+        // Persist messages — non-fatal
+        try {
+          const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+          if (lastUserMsg) {
+            await prisma.hrChatMessage.create({ data: { sessionId: capturedSessionId, role: "user", content: lastUserMsg.content } });
+          }
+          if (fullText) {
+            await prisma.hrChatMessage.create({ data: { sessionId: capturedSessionId, role: "assistant", content: fullText } });
+          }
+        } catch (saveErr) {
+          console.error("DB message save (non-fatal):", saveErr);
         }
 
-        controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, sessionId: capturedSession.id })}\n\n`));
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, sessionId: capturedSessionId })}\n\n`));
       } catch (err) {
         console.error("chat stream error:", err);
         controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: "Stream failed. Please try again." })}\n\n`));
@@ -97,10 +106,14 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const sessions = await prisma.hrChatSession.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } },
-  });
-  return NextResponse.json(sessions);
+  try {
+    const sessions = await prisma.hrChatSession.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+    return NextResponse.json(sessions);
+  } catch {
+    return NextResponse.json([]);
+  }
 }
