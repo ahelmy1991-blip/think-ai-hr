@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 import { prisma } from "@/lib/db";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const anthropic = new Anthropic();
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const AI_COMPANIES = [
   "openai","anthropic","google deepmind","deepmind","google ai","meta ai","microsoft ai",
@@ -14,7 +14,7 @@ const AI_COMPANIES = [
   "tencent ai","sensetime","face++","megvii","horizon robotics","momenta","autonomous",
   "waymo","cruise","nuro","zoox","argo ai","aurora","mobileye","comma ai",
   "palantir","c3.ai","h2o.ai","datarobot","sas","dataiku","anyscale","weights & biases",
-  "think-ai","thinklogic","inceptiontech","elm", "stc", "sdaia",
+  "think-ai","thinklogic","inceptiontech","elm","stc","sdaia","accenture","aramco",
 ];
 
 function detectAICompanies(text: string): string[] {
@@ -29,10 +29,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "profileText required - paste the LinkedIn profile content" }, { status: 400 });
     }
 
-    const response = await anthropic.messages.create({
-      model: "claude-opus-4-8",
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
       max_tokens: 1000,
-      system: `You are an HR data extraction assistant. Extract structured information from LinkedIn profile text.
+      messages: [
+        {
+          role: "system",
+          content: `You are an HR data extraction assistant. Extract structured information from LinkedIn profile text.
 Return ONLY a valid JSON object with these exact fields (use null for missing data):
 {
   "name": string,
@@ -53,22 +56,28 @@ Return ONLY a valid JSON object with these exact fields (use null for missing da
   "summary": string | null
 }
 
-For "specialty": summarize the main area (e.g., "Computer Vision", "NLP", "MLOps", "Embedded AI", "Full-Stack AI", "Hardware Design").
-For "culturalBackground": based on name and background, infer likely cultural/regional background (e.g., "Arab/Middle Eastern", "South Asian", "East Asian", "Western", "North African"). Used for KSA work visa planning.
-For "aiCompanies": list any companies that work in AI/ML from their experience.
-For "languages": include Arabic if name/background suggests Arabic speaker.
-Return ONLY the JSON, no markdown, no explanation.`,
-      messages: [{ role: "user", content: `Extract data from this LinkedIn profile:\n\n${profileText}` }],
+For "specialty": summarize the main area (e.g., "Computer Vision", "NLP", "MLOps", "Embedded AI").
+For "culturalBackground": infer likely cultural/regional background for KSA visa planning.
+For "aiCompanies": list any AI/ML companies from their experience.
+Return ONLY the JSON object, no markdown, no code blocks, no explanation.`,
+        },
+        {
+          role: "user",
+          content: `Extract data from this LinkedIn profile:\n\n${profileText}`,
+        },
+      ],
     });
 
-    const rawText = (response.content.find((b) => b.type === "text") as Anthropic.TextBlock | undefined)?.text ?? "{}";
+    const rawText = completion.choices[0]?.message?.content ?? "{}";
 
     let parsed: Record<string, unknown> = {};
     try {
       parsed = JSON.parse(rawText);
     } catch {
       const match = rawText.match(/\{[\s\S]*\}/);
-      if (match) parsed = JSON.parse(match[0]);
+      if (match) {
+        try { parsed = JSON.parse(match[0]); } catch { parsed = {}; }
+      }
     }
 
     const detectedAICompanies = detectAICompanies(profileText);
@@ -76,7 +85,6 @@ Return ONLY the JSON, no markdown, no explanation.`,
       ...((parsed.aiCompanies as string[]) || []),
       ...detectedAICompanies,
     ]);
-    const allAICompanies = Array.from(aiSet);
 
     const candidateData = {
       jobId: jobId || null,
@@ -91,8 +99,8 @@ Return ONLY the JSON, no markdown, no explanation.`,
       yearsExperience: parsed.yearsExperience ? Number(parsed.yearsExperience) : null,
       specialty: (parsed.specialty as string) || null,
       culturalBackground: (parsed.culturalBackground as string) || null,
-      hasAICompanyExp: Boolean(parsed.hasAICompanyExp) || allAICompanies.length > 0,
-      aiCompanies: allAICompanies,
+      hasAICompanyExp: Boolean(parsed.hasAICompanyExp) || aiSet.size > 0,
+      aiCompanies: Array.from(aiSet),
       skills: (parsed.skills as string[]) || [],
       education: (parsed.education as string) || null,
       languages: (parsed.languages as string[]) || [],
@@ -103,10 +111,10 @@ Return ONLY the JSON, no markdown, no explanation.`,
     };
 
     const candidate = await prisma.hrCandidate.create({ data: candidateData });
-
     return NextResponse.json({ candidate, extracted: parsed }, { status: 201 });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: "Import failed" }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[import] error:", msg);
+    return NextResponse.json({ error: "Import failed", detail: msg.slice(0, 200) }, { status: 500 });
   }
 }

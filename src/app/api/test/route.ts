@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -115,15 +115,15 @@ export async function GET() {
   }));
 
   // ── AI ───────────────────────────────────────────────────────────────────
-  results.push(await run('ai_key', 'AI', 'Claude API responds (Haiku quick test)', async () => {
-    const anthropic = new Anthropic();
-    const r = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+  results.push(await run('ai_key', 'AI', 'Groq API responds (quick test)', async () => {
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    const r = await groq.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
       max_tokens: 10,
       messages: [{ role: 'user', content: 'Reply with one word: OK' }],
     });
-    const text = r.content[0].type === 'text' ? r.content[0].text.trim() : '(no text)';
-    return `Claude responded: "${text}"`;
+    const text = r.choices[0]?.message?.content?.trim() ?? '(no text)';
+    return `Groq/Llama responded: "${text}"`;
   }));
 
   results.push(await run('ai_chat_session', 'AI', 'Chat session create/delete (People AI DB)', async () => {

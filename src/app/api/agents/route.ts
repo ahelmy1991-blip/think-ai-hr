@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 import { prisma } from "@/lib/db";
 import { POLICY_TEXT } from "@/lib/policy";
 import { randomUUID } from "crypto";
@@ -7,7 +7,7 @@ import { randomUUID } from "crypto";
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const anthropic = new Anthropic();
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const AGENT_NAMES: Record<string, string> = {
   "people-ai": "People AI",
@@ -55,7 +55,6 @@ export async function POST(req: NextRequest) {
   const agentName = AGENT_NAMES[agentId] ?? agentId;
   let sessionId: string = incomingSessionId ?? "";
 
-  // Create or reuse DB session
   try {
     if (!sessionId) {
       const firstUserMsg = messages.find((m) => m.role === "user");
@@ -85,16 +84,19 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       let fullText = "";
       try {
-        const aiStream = anthropic.messages.stream({
-          model: "claude-opus-4-8",
+        const stream = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
           max_tokens: 1500,
-          system: systemPrompt,
-          messages: messages as { role: "user" | "assistant"; content: string }[],
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...(messages as { role: "user" | "assistant"; content: string }[]),
+          ],
+          stream: true,
         });
 
-        for await (const chunk of aiStream) {
-          if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-            const text = chunk.delta.text;
+        for await (const chunk of stream) {
+          const text = chunk.choices[0]?.delta?.content ?? "";
+          if (text) {
             fullText += text;
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ text })}\n\n`));
           }
