@@ -9,10 +9,10 @@ PART 1: PURPOSE, MISSION & VALUES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 PURPOSE — why we exist
-To reclaim the golden era of the region. To build what the Arab world has the talent to build — not to license it from elsewhere.
+To reclaim the golden era of the region. To build what the Muslim world has the talent to build — not to license it from elsewhere.
 
 MISSION — what we build
-AI sovereignty for the region, by the region. AI we own, not rent. Intelligence — in software and hardware — that stays in the region and compounds here.
+AI Infrastructure that thinks. AI we own, not rent. Intelligence — in software and hardware — that stays in the region and compounds here.
 
 VISION — where we're going
 To be the region's most trusted builder of applied AI, and the place the best AI talent comes to turn ideas into systems the world relies on.
@@ -145,14 +145,18 @@ VESTING:
 - Alternative: 25% at cliff, then monthly over remaining 36 months (more retention-friendly).
 - For the founding team: grant date = start date.
 
+CURRENT VALUATION FOR GRANT FAIR VALUE PURPOSES:
+- Round: Pre-Seed | Valuation: $47M USD | Exercise price = fair value at date of grant (board-approved 409A-equivalent)
+- Grant fair values scale with future funding rounds. Current grants are priced at the Pre-Seed $47M valuation.
+
 GRANT SIZES BY LEVEL (indicative, % of fully-diluted shares):
-- L1: ~0.01% | L2: ~0.02% | L3: ~0.04% | L4: ~0.06%
-- L5: ~0.10% | L6: ~0.15% | L7: ~0.20% | L8: ~0.30%
-- L9: ~0.40% | L10: ~0.60% | L11: ~0.80% | L12: ~1.00%
-- L13: ~1.50% | L14: 2.00–4.00% | L15: Separate cap table
+- L1–L4: No equity | L5: ~0.10% (~$47K) | L6: ~0.15% (~$70K)
+- L7: ~0.20% (~$94K) | L8: ~0.30% (~$141K) | L9: ~0.40% (~$188K)
+- L10: ~0.60% (~$282K) | L11: ~0.80% (~$376K) | L12: ~1.00% (~$470K)
+- L13: ~1.50% (~$705K) | L14: 2.00–4.00% ($940K–$1.88M) | L15: Separate cap table
 
 GRANT TERMS (defined in every grant):
-- Strike price = current fair value at grant (independent/409A-style or board-approved formula).
+- Strike price = $47M Pre-Seed board-approved fair value (409A-equivalent). Repriced at each new funding round for future grants; existing grants retain their original strike price.
 - Exercise window post-termination.
 - Good leaver: retains vested options within exercise window; unvested return to pool.
 - Bad leaver: per the grant agreement.
@@ -534,15 +538,15 @@ Offboarding:
 SECTION G: CULTURE, VALUES & EVP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Purpose: To reclaim the golden era of the region. To build what the Arab world has the talent to build — not to license it from elsewhere.
-Mission: AI sovereignty for the region, by the region. AI we own, not rent.
+Purpose: To reclaim the golden era of the region. To build what the Muslim world has the talent to build — not to license it from elsewhere.
+Mission: AI Infrastructure that thinks. AI we own, not rent.
 Vision: To be the region's most trusted builder of applied AI — where the best AI talent comes to turn ideas into systems the world relies on.
 
 Values (what each demands in observable behavior):
-1. Ownership: Act without being told; take accountability for outcomes end-to-end. Backed by equity for all.
-2. Agility: Make the call with incomplete information; ship in cycles; decide at the lowest informed level.
-3. Impact: Prioritize the highest-leverage work; key results are outcomes not activity. Show the thing you shipped.
-4. Craft: Go deeper than the brief requires; raise the quality bar; hold the line on rigor, safety, and trust.
+1. Ownership — owners, not staff: Own the outcome, not the task. Be frugal with resources. Mission over comfort.
+2. Agility — move with velocity: Bias for action. We ship quickly and reiterate. Disagree, then commit.
+3. Impact — builders, not talkers: Build for the customer. Think big, execute with simplicity. Outcomes, not activity.
+4. Craft — go deep on the hard problem: Excellence as the default. Dive deep. Delight the customer.
 
 EVP (Global AI Talent): Real ownership of hard problems at the software/hardware frontier, equity upside, relocation and sponsorship handled professionally, front-row seat to building AI capability in a fast-moving market.
 EVP (Saudi Talent): High-growth, mission-driven AI company contributing to Vision 2030, real responsibility early, structured development, clear growth path.

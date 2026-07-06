@@ -19,28 +19,28 @@ const VALUES_STRIP = [
   {
     id: "ownership",
     name: "Ownership",
-    behavior: "Act without being told; take accountability end-to-end.",
+    behavior: "Own the outcome, not the task.",
     borderColor: "#0f2140",
     href: "/company#ownership",
   },
   {
     id: "agility",
     name: "Agility",
-    behavior: "Make the call with incomplete information; ship in cycles.",
+    behavior: "Bias for action.",
     borderColor: "#3b82f6",
     href: "/company#agility",
   },
   {
     id: "impact",
     name: "Impact",
-    behavior: "Prioritize the highest-leverage work; outcomes, not activity.",
+    behavior: "Build for the customer.",
     borderColor: "#f59e0b",
     href: "/company#impact",
   },
   {
     id: "craft",
     name: "Craft",
-    behavior: "Go deeper than the brief requires; raise the quality bar.",
+    behavior: "Excellence as the default.",
     borderColor: "#8b5cf6",
     href: "/company#craft",
   },
@@ -99,7 +99,7 @@ export default function DashboardPage() {
               marginBottom: 6,
             }}
           >
-            AI sovereignty for the region, by the region.
+            AI Infrastructure that thinks.
           </h1>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>
             THINK-AI &middot; Riyadh, KSA &middot; {today}
