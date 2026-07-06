@@ -10,3 +10,6 @@ prisma/*.db
 
 # Personal documents — never belong in this repo
 Documents & DATA HR HELMY/
+
+# One-off local DB migration/fix scripts — may contain real employee PII
+/*.mjs

@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
       title, department, level, location, jobType, description,
       requirements, targetCountries, minYearsExp, maxYearsExp,
       specialty, preferAIExp, headcount,
+      talent_preference, company_overview, values_expectations,
     } = body;
 
     if (!title || !description) {
@@ -44,6 +45,16 @@ export async function POST(req: NextRequest) {
         status: "open",
       },
     });
+
+    // Write extended columns that aren't in Prisma schema
+    await prisma.$executeRawUnsafe(
+      `UPDATE hr_jobs SET talent_preference=$1, company_overview=$2, values_expectations=$3 WHERE id=$4`,
+      talent_preference ?? "open",
+      company_overview ?? "",
+      values_expectations ?? "",
+      job.id
+    );
+
     return NextResponse.json(job, { status: 201 });
   } catch (e) {
     console.error(e);

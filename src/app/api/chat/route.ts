@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import { prisma } from "@/lib/db";
 import { POLICY_TEXT } from "@/lib/policy";
+import { getActiveKnowledge } from "@/lib/knowledge";
 import { randomUUID } from "crypto";
 
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
 
   const capturedSessionId = sessionId;
   const enc = new TextEncoder();
+  const customKnowledge = await getActiveKnowledge();
 
   const responseStream = new ReadableStream({
     async start(controller) {
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
           model: "llama-3.3-70b-versatile",
           max_tokens: 1500,
           messages: [
-            { role: "system", content: SYSTEM },
+            { role: "system", content: SYSTEM + customKnowledge },
             ...(messages as { role: "user" | "assistant"; content: string }[]),
           ],
           stream: true,

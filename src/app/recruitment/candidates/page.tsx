@@ -25,6 +25,9 @@ export default function CandidatesPage() {
   const [importing, setImporting] = useState(false);
   const [matching, setMatching] = useState(false);
   const [filter, setFilter] = useState({ country: "", minExp: "", maxExp: "", hasAIExp: "", stage: "" });
+  // preview state — shown after AI extraction, before DB save
+  const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
+  const [previewRaw, setPreviewRaw] = useState<{ profileText: string; linkedinUrl: string; jobId: string | null } | null>(null);
 
   useEffect(() => {
     loadCandidates();
@@ -45,14 +48,35 @@ export default function CandidatesPage() {
   async function importProfile() {
     if (!profileText.trim()) return;
     setImporting(true);
-    const r = await fetch("/api/recruitment/import", {
+    // Step 1: extract only — get preview before saving
+    const r = await fetch("/api/recruitment/import?preview=true", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profileText, linkedinUrl, jobId: importJobId || null }),
     });
     const data = await r.json();
-    if (r.ok) {
+    if (r.ok && data.extracted) {
+      // Show preview for confirmation
+      setPreview({ ...data.extracted, linkedinUrl, jobId: importJobId || null });
+      setPreviewRaw({ profileText, linkedinUrl, jobId: importJobId || null });
       setShowImport(false);
+    } else {
+      alert(data.error || "Extraction failed");
+    }
+    setImporting(false);
+  }
+
+  async function confirmImport(edited: Record<string, unknown>) {
+    if (!previewRaw) return;
+    setImporting(true);
+    const r = await fetch("/api/recruitment/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...previewRaw, overrideExtracted: edited }),
+    });
+    const data = await r.json();
+    if (r.ok) {
+      setPreview(null); setPreviewRaw(null);
       setProfileText(""); setLinkedinUrl(""); setImportJobId("");
       loadCandidates();
       setSelected(data.candidate);
@@ -292,12 +316,15 @@ export default function CandidatesPage() {
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShowImport(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={importProfile} disabled={importing || !profileText.trim()}>
-                {importing ? "Importing with AI..." : "Import Profile"}
+                {importing ? "Extracting with AI..." : "Extract & Preview"}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Import Preview Modal — confirm before saving */}
+      {preview && <ImportPreviewModal preview={preview} onConfirm={confirmImport} onCancel={() => { setPreview(null); setPreviewRaw(null); }} saving={importing} />}
     </>
   );
 }
@@ -307,6 +334,63 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div>
       <div className="form-label">{label}</div>
       <div style={{ fontSize: 13.5, color: "#334155" }}>{value}</div>
+    </div>
+  );
+}
+
+function ImportPreviewModal({ preview, onConfirm, onCancel, saving }: {
+  preview: Record<string, unknown>;
+  onConfirm: (edited: Record<string, unknown>) => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  const [data, setData] = useState({ ...preview });
+  const inp: React.CSSProperties = { width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #dce3ee", fontSize: 13, fontFamily: "Outfit,sans-serif", boxSizing: "border-box" };
+  const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6b7a99", letterSpacing: "0.06em", display: "block", marginBottom: 3 };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box" style={{ width: 680, maxHeight: "90vh", overflowY: "auto" }}>
+        <div className="modal-header" style={{ background: "#0a1628", color: "white", borderRadius: "12px 12px 0 0" }}>
+          <div>
+            <h3 style={{ color: "white", margin: 0 }}>Review Extracted Data</h3>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>Check the AI-extracted info below — edit anything wrong before saving</div>
+          </div>
+          <button onClick={onCancel} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 20 }}>✕</button>
+        </div>
+        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ padding: "8px 12px", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, fontSize: 12, color: "#92400e" }}>
+            ⚠ Review carefully — edit any field that the AI got wrong before clicking Save.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><label style={lbl}>Full Name</label><input style={inp} value={String(data.name ?? "")} onChange={e => setData(d => ({ ...d, name: e.target.value }))} /></div>
+            <div><label style={lbl}>Current Role</label><input style={inp} value={String(data.currentRole ?? "")} onChange={e => setData(d => ({ ...d, currentRole: e.target.value }))} /></div>
+            <div><label style={lbl}>Current Company</label><input style={inp} value={String(data.currentCompany ?? "")} onChange={e => setData(d => ({ ...d, currentCompany: e.target.value }))} /></div>
+            <div><label style={lbl}>Country</label><input style={inp} value={String(data.country ?? "")} onChange={e => setData(d => ({ ...d, country: e.target.value }))} /></div>
+            <div><label style={lbl}>City</label><input style={inp} value={String(data.city ?? "")} onChange={e => setData(d => ({ ...d, city: e.target.value }))} /></div>
+            <div><label style={lbl}>Specialty</label><input style={inp} value={String(data.specialty ?? "")} onChange={e => setData(d => ({ ...d, specialty: e.target.value }))} /></div>
+            <div><label style={lbl}>Years Experience</label><input type="number" style={inp} value={String(data.yearsExperience ?? "")} onChange={e => setData(d => ({ ...d, yearsExperience: e.target.value ? Number(e.target.value) : null }))} /></div>
+            <div><label style={lbl}>Email</label><input style={inp} value={String(data.email ?? "")} onChange={e => setData(d => ({ ...d, email: e.target.value }))} /></div>
+          </div>
+          <div><label style={lbl}>Skills (comma-separated)</label>
+            <input style={inp} value={Array.isArray(data.skills) ? (data.skills as string[]).join(", ") : String(data.skills ?? "")}
+              onChange={e => setData(d => ({ ...d, skills: e.target.value.split(",").map(s => s.trim()).filter(Boolean) }))} />
+          </div>
+          <div><label style={lbl}>Languages (comma-separated)</label>
+            <input style={inp} value={Array.isArray(data.languages) ? (data.languages as string[]).join(", ") : String(data.languages ?? "")}
+              onChange={e => setData(d => ({ ...d, languages: e.target.value.split(",").map(s => s.trim()).filter(Boolean) }))} />
+          </div>
+          <div><label style={lbl}>Summary / Notes</label>
+            <textarea style={{ ...inp, height: 70, resize: "vertical" }} value={String(data.summary ?? "")} onChange={e => setData(d => ({ ...d, summary: e.target.value }))} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-primary" onClick={() => onConfirm(data)} disabled={saving || !String(data.name ?? "").trim()}>
+            {saving ? "Saving..." : "Confirm & Save Candidate"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
