@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { exportToExcel, exportToPDF, exportToWord } from "@/lib/export";
 import { generateContractHTML, suggestSSCO, suggestSSCOFromTitle } from "@/lib/generateContract";
+import { generatePayslipHTML, type PayslipLine } from "@/lib/generatePayslip";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface KnowledgeEntry { id: string; title: string; category: string; content: string; active: boolean; }
@@ -44,7 +45,7 @@ interface Employee {
   vendor_name: string | null; job_req_id: string | null;
 }
 
-const TABS = ["Knowledge Base", "Jobs", "Candidates", "Team", "Onboarding", "Compensation", "Absence", "Medical", "Portal", "Contracts"] as const;
+const TABS = ["Knowledge Base", "Jobs", "Candidates", "Team", "Onboarding", "Compensation", "Absence", "Medical", "Portal", "Contracts", "Payroll"] as const;
 type Tab = typeof TABS[number];
 
 const NAV = { background: "#0a1628", color: "white" };
@@ -161,6 +162,7 @@ export default function AdminPage() {
         {tab === "Medical"       && <MedicalTab showToast={showToast} />}
         {tab === "Portal"        && <PortalTab showToast={showToast} />}
         {tab === "Contracts"     && <ContractsTab employees={employees} showToast={showToast} />}
+        {tab === "Payroll"       && <PayrollTab employees={employees} showToast={showToast} />}
       </div>
 
       {/* System Health Check Modal */}
@@ -3376,4 +3378,191 @@ function ContractsTab({employees,showToast}:{employees:Employee[];showToast:(m:s
       </div>
     )}
   </>);
+}
+
+// ── Payroll & Payslips ────────────────────────────────────────────────────────
+interface ParsedPayslipRow {
+  employeeIdCode: string; name: string; location: string; joiningDate: string;
+  employmentType: string; idType: string; idTypeLabel: string; idNumber: string;
+  iban: string; bank: string; contact: string; currency: string;
+  earnings: PayslipLine[]; deductions: PayslipLine[]; gross: number;
+  totalDeductions: number; netPay: number; note?: string; flagged: boolean; payPeriod: string;
+  matchedEmployeeId: string;
+}
+
+function fmt2(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+function PayrollTab({ employees, showToast }: { employees: Employee[]; showToast: (m: string) => void }) {
+  const [period, setPeriod] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [rows, setRows] = useState<ParsedPayslipRow[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function matchEmployee(name: string, iban: string): string {
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    const n = norm(name);
+    let m = employees.find(e => norm(e.name) === n);
+    if (!m && iban) {
+      const ni = iban.replace(/\s+/g, "").toUpperCase();
+      m = employees.find(e => e.iban && e.iban.replace(/\s+/g, "").toUpperCase() === ni);
+    }
+    return m?.id || "";
+  }
+
+  async function upload() {
+    if (!file) { showToast("Please select the payroll Excel file"); return; }
+    if (!period.trim()) { showToast("Please enter the pay period (e.g. June 2026)"); return; }
+    setParsing(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("period", period.trim());
+      const r = await fetch("/api/admin/payroll/parse", { method: "POST", body: fd });
+      const data = await r.json();
+      if (!r.ok) { showToast(data.error || "Failed to parse file"); return; }
+      const withMatch = (data.rows as ParsedPayslipRow[]).map(row => ({ ...row, matchedEmployeeId: matchEmployee(row.name, row.iban) }));
+      setRows(withMatch);
+      showToast(`Parsed ${withMatch.length} payslip${withMatch.length === 1 ? "" : "s"}`);
+    } catch (e: unknown) {
+      showToast("Network error: " + (e instanceof Error ? e.message : "Unknown error"));
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function updateRow(i: number, patch: Partial<ParsedPayslipRow>) {
+    setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  }
+
+  function updateLine(i: number, section: "earnings" | "deductions", li: number, amount: number) {
+    setRows(rs => rs.map((r, idx) => {
+      if (idx !== i) return r;
+      const earnings = section === "earnings" ? r.earnings.map((l, x) => x === li ? { ...l, amount } : l) : r.earnings;
+      const deductions = section === "deductions" ? r.deductions.map((l, x) => x === li ? { ...l, amount } : l) : r.deductions;
+      const gross = earnings.reduce((s, l) => s + l.amount, 0);
+      const totalDeductions = deductions.reduce((s, l) => s + l.amount, 0);
+      return { ...r, earnings, deductions, gross, totalDeductions, netPay: gross - totalDeductions };
+    }));
+  }
+
+  function preview(row: ParsedPayslipRow) {
+    const emp = employees.find(e => e.id === row.matchedEmployeeId);
+    const html = generatePayslipHTML({
+      employeeIdCode: row.employeeIdCode, name: row.name, idTypeLabel: row.idTypeLabel,
+      idNumber: row.idNumber, employmentType: row.employmentType, location: row.location,
+      joiningDate: row.joiningDate, payPeriod: row.payPeriod, bank: row.bank, iban: row.iban,
+      contact: row.contact, workEmail: emp?.email || "— not matched —",
+      earnings: row.earnings, deductions: row.deductions, gross: row.gross,
+      totalDeductions: row.totalDeductions, netPay: row.netPay, currency: row.currency, note: row.note,
+    });
+    const w = window.open("", "_blank");
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
+  function emailDraft(row: ParsedPayslipRow) {
+    const emp = employees.find(e => e.id === row.matchedEmployeeId);
+    if (!emp?.email) { showToast("No matched employee — select one before emailing"); return; }
+    const subject = `THINK-AI Payslip — ${row.payPeriod}`;
+    const body = `Hi ${row.name.split(" ")[0]},\n\nPlease find attached your payslip for ${row.payPeriod}.\n\nNet pay: ${fmt2(row.netPay)} ${row.currency}\n\n(Remember to attach the downloaded/printed PDF — this draft does not attach it automatically.)\n\nBest,\nTHINK-AI People Team`;
+    window.location.href = `mailto:${emp.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  return (
+    <div>
+      <div style={SECTION_HEADING}>Upload Monthly Payroll</div>
+      <div style={CARD}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+          <div>
+            <label style={LABEL}>Pay period</label>
+            <input style={INPUT} placeholder="e.g. June 2026" value={period} onChange={e => setPeriod(e.target.value)} />
+          </div>
+          <div>
+            <label style={LABEL}>Payroll file (.xlsx)</label>
+            <div onClick={() => fileInputRef.current?.click()} style={{ ...INPUT, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, background: "#f8fafc", border: "2px dashed #cbd5e1", minHeight: 40 }}>
+              {file ? <span style={{ fontSize: 13, fontWeight: 600 }}>📄 {file.name}</span> : <span style={{ fontSize: 13, color: "#94a3b8" }}>Click to upload</span>}
+            </div>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => setFile(e.target.files?.[0] || null)} />
+          </div>
+        </div>
+        <button onClick={upload} disabled={parsing} style={{ ...BTN("#4c1d95"), opacity: parsing ? 0.5 : 1 }}>{parsing ? "Parsing..." : "Parse Payroll File"}</button>
+        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>
+          Expects the standard payroll workbook layout (Employee ID → SAR Equivalent columns). Sending is manual: preview/print each payslip as a PDF, then use the email draft button — it opens your mail client pre-filled, but you attach the PDF yourself.
+        </div>
+      </div>
+
+      {rows.length > 0 && (
+        <>
+          <div style={SECTION_HEADING}>Generated Payslips ({rows.length}) — review before sending</div>
+          {rows.map((row, i) => {
+            const emp = employees.find(e => e.id === row.matchedEmployeeId);
+            return (
+              <div key={i} style={CARD}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#0a1628" }}>{row.name} <span style={{ color: "#94a3b8", fontWeight: 500, fontSize: 12 }}>· {row.employeeIdCode}</span></div>
+                    <div style={{ fontSize: 12, color: "#6b7a99" }}>{row.location} · {row.employmentType} · {row.currency}</div>
+                  </div>
+                  {row.flagged && <span style={{ background: "#fef3c7", color: "#92400e", fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20 }}>⚠ Review needed</span>}
+                </div>
+
+                {row.note && <div style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}><strong>Note:</strong> {row.note}</div>}
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={LABEL}>Matched employee (work email source)</label>
+                  <select value={row.matchedEmployeeId} onChange={e => updateRow(i, { matchedEmployeeId: e.target.value })} style={INPUT}>
+                    <option value="">— No match, select manually —</option>
+                    {employees.map(e => <option key={e.id} value={e.id}>{e.name} · {e.email}</option>)}
+                  </select>
+                  {!emp && <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4 }}>No employee matched — payslip can&apos;t be emailed until one is selected.</div>}
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7a99", marginBottom: 6 }}>EARNINGS</div>
+                    {row.earnings.map((l, li) => (
+                      <div key={li} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 }}>
+                        <span style={{ fontSize: 13 }}>{l.label}</span>
+                        <input type="number" step="0.01" value={l.amount} onChange={e => updateLine(i, "earnings", li, parseFloat(e.target.value) || 0)} style={{ ...INPUT, width: 110, textAlign: "right", padding: "6px 8px" }} />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, borderTop: "1px solid #e2e8f0", paddingTop: 6, fontSize: 13 }}>
+                      <span>Gross</span><span>{fmt2(row.gross)}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7a99", marginBottom: 6 }}>DEDUCTIONS</div>
+                    {row.deductions.length === 0 && <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 6 }}>None</div>}
+                    {row.deductions.map((l, li) => (
+                      <div key={li} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 }}>
+                        <span style={{ fontSize: 13 }}>{l.label}</span>
+                        <input type="number" step="0.01" value={l.amount} onChange={e => updateLine(i, "deductions", li, parseFloat(e.target.value) || 0)} style={{ ...INPUT, width: 110, textAlign: "right", padding: "6px 8px" }} />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, borderTop: "1px solid #e2e8f0", paddingTop: 6, fontSize: 13 }}>
+                      <span>Total deductions</span><span>{fmt2(row.totalDeductions)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#6b7a99", textTransform: "uppercase", letterSpacing: "0.06em" }}>Net Pay Transferred</div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                      <input type="number" step="0.01" value={row.netPay} onChange={e => updateRow(i, { netPay: parseFloat(e.target.value) || 0 })} style={{ ...INPUT, width: 140, fontSize: 20, fontWeight: 800, color: "#2563eb", border: "none", padding: "2px 0" }} />
+                      <span style={{ fontSize: 13, color: "#6b7a99" }}>{row.currency}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => preview(row)} style={BTN("#0a1628")}>🖨 Preview / Print</button>
+                    <button onClick={() => emailDraft(row)} disabled={!emp} style={{ ...BTN("#e8c97a", "#0a1628"), opacity: emp ? 1 : 0.5 }}>✉ Email Draft</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
 }
