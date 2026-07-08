@@ -162,7 +162,7 @@ export default function AdminPage() {
         {tab === "Medical"       && <MedicalTab showToast={showToast} />}
         {tab === "Portal"        && <PortalTab showToast={showToast} />}
         {tab === "Contracts"     && <ContractsTab employees={employees} showToast={showToast} />}
-        {tab === "Payroll"       && <PayrollTab employees={employees} showToast={showToast} />}
+        {tab === "Payroll"       && <PayrollTab showToast={showToast} />}
       </div>
 
       {/* System Health Check Modal */}
@@ -3381,51 +3381,42 @@ function ContractsTab({employees,showToast}:{employees:Employee[];showToast:(m:s
 }
 
 // ── Payroll & Payslips ────────────────────────────────────────────────────────
+// Data source is the uploaded Excel file only — no lookup/validation against
+// the Team (hr_employees) records, since payroll rows may not exist there yet.
 interface ParsedPayslipRow {
-  employeeIdCode: string; name: string; location: string; joiningDate: string;
+  employeeIdCode: string; name: string; workEmail: string; location: string; joiningDate: string;
   employmentType: string; idType: string; idTypeLabel: string; idNumber: string;
   iban: string; bank: string; contact: string; currency: string;
   earnings: PayslipLine[]; deductions: PayslipLine[]; gross: number;
   totalDeductions: number; netPay: number; note?: string; flagged: boolean; payPeriod: string;
-  matchedEmployeeId: string;
 }
 
 function fmt2(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-function PayrollTab({ employees, showToast }: { employees: Employee[]; showToast: (m: string) => void }) {
+function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
   const [period, setPeriod] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState("");
   const [rows, setRows] = useState<ParsedPayslipRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  function matchEmployee(name: string, iban: string): string {
-    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-    const n = norm(name);
-    let m = employees.find(e => norm(e.name) === n);
-    if (!m && iban) {
-      const ni = iban.replace(/\s+/g, "").toUpperCase();
-      m = employees.find(e => e.iban && e.iban.replace(/\s+/g, "").toUpperCase() === ni);
-    }
-    return m?.id || "";
-  }
 
   async function upload() {
     if (!file) { showToast("Please select the payroll Excel file"); return; }
     if (!period.trim()) { showToast("Please enter the pay period (e.g. June 2026)"); return; }
     setParsing(true);
+    setParseError("");
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("period", period.trim());
       const r = await fetch("/api/admin/payroll/parse", { method: "POST", body: fd });
       const data = await r.json();
-      if (!r.ok) { showToast(data.error || "Failed to parse file"); return; }
-      const withMatch = (data.rows as ParsedPayslipRow[]).map(row => ({ ...row, matchedEmployeeId: matchEmployee(row.name, row.iban) }));
-      setRows(withMatch);
-      showToast(`Parsed ${withMatch.length} payslip${withMatch.length === 1 ? "" : "s"}`);
+      if (!r.ok) { setParseError(data.error || "Failed to parse file"); return; }
+      setRows(data.rows as ParsedPayslipRow[]);
+      showToast(`Parsed ${data.rows.length} payslip${data.rows.length === 1 ? "" : "s"}`);
     } catch (e: unknown) {
-      showToast("Network error: " + (e instanceof Error ? e.message : "Unknown error"));
+      setParseError("Network error: " + (e instanceof Error ? e.message : "Unknown error"));
     } finally {
       setParsing(false);
     }
@@ -3447,12 +3438,11 @@ function PayrollTab({ employees, showToast }: { employees: Employee[]; showToast
   }
 
   function preview(row: ParsedPayslipRow) {
-    const emp = employees.find(e => e.id === row.matchedEmployeeId);
     const html = generatePayslipHTML({
       employeeIdCode: row.employeeIdCode, name: row.name, idTypeLabel: row.idTypeLabel,
       idNumber: row.idNumber, employmentType: row.employmentType, location: row.location,
       joiningDate: row.joiningDate, payPeriod: row.payPeriod, bank: row.bank, iban: row.iban,
-      contact: row.contact, workEmail: emp?.email || "— not matched —",
+      contact: row.contact, workEmail: row.workEmail || "— add work email —",
       earnings: row.earnings, deductions: row.deductions, gross: row.gross,
       totalDeductions: row.totalDeductions, netPay: row.netPay, currency: row.currency, note: row.note,
     });
@@ -3461,11 +3451,10 @@ function PayrollTab({ employees, showToast }: { employees: Employee[]; showToast
   }
 
   function emailDraft(row: ParsedPayslipRow) {
-    const emp = employees.find(e => e.id === row.matchedEmployeeId);
-    if (!emp?.email) { showToast("No matched employee — select one before emailing"); return; }
+    if (!row.workEmail) { showToast("Add a work email for this employee before emailing"); return; }
     const subject = `THINK-AI Payslip — ${row.payPeriod}`;
     const body = `Hi ${row.name.split(" ")[0]},\n\nPlease find attached your payslip for ${row.payPeriod}.\n\nNet pay: ${fmt2(row.netPay)} ${row.currency}\n\n(Remember to attach the downloaded/printed PDF — this draft does not attach it automatically.)\n\nBest,\nTHINK-AI People Team`;
-    window.location.href = `mailto:${emp.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = `mailto:${row.workEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
   return (
@@ -3487,15 +3476,19 @@ function PayrollTab({ employees, showToast }: { employees: Employee[]; showToast
         </div>
         <button onClick={upload} disabled={parsing} style={{ ...BTN("#4c1d95"), opacity: parsing ? 0.5 : 1 }}>{parsing ? "Parsing..." : "Parse Payroll File"}</button>
         <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>
-          Expects the standard payroll workbook layout (Employee ID → SAR Equivalent columns). Sending is manual: preview/print each payslip as a PDF, then use the email draft button — it opens your mail client pre-filled, but you attach the PDF yourself.
+          Reads only the uploaded file — nothing is checked against Team records. Sending is manual: preview/print each payslip as a PDF, then use the email draft button — it opens your mail client pre-filled, but you attach the PDF yourself.
         </div>
+        {parseError && (
+          <div style={{ marginTop: 12, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 12, color: "#dc2626" }}>
+            {parseError}
+          </div>
+        )}
       </div>
 
       {rows.length > 0 && (
         <>
           <div style={SECTION_HEADING}>Generated Payslips ({rows.length}) — review before sending</div>
           {rows.map((row, i) => {
-            const emp = employees.find(e => e.id === row.matchedEmployeeId);
             return (
               <div key={i} style={CARD}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -3509,12 +3502,8 @@ function PayrollTab({ employees, showToast }: { employees: Employee[]; showToast
                 {row.note && <div style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}><strong>Note:</strong> {row.note}</div>}
 
                 <div style={{ marginBottom: 12 }}>
-                  <label style={LABEL}>Matched employee (work email source)</label>
-                  <select value={row.matchedEmployeeId} onChange={e => updateRow(i, { matchedEmployeeId: e.target.value })} style={INPUT}>
-                    <option value="">— No match, select manually —</option>
-                    {employees.map(e => <option key={e.id} value={e.id}>{e.name} · {e.email}</option>)}
-                  </select>
-                  {!emp && <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4 }}>No employee matched — payslip can&apos;t be emailed until one is selected.</div>}
+                  <label style={LABEL}>Work email (auto-suggested from name — edit if wrong)</label>
+                  <input value={row.workEmail} onChange={e => updateRow(i, { workEmail: e.target.value })} style={INPUT} placeholder="name@think-ai.com" />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
@@ -3555,7 +3544,7 @@ function PayrollTab({ employees, showToast }: { employees: Employee[]; showToast
                   </div>
                   <div style={{ display: "flex", gap: 10 }}>
                     <button onClick={() => preview(row)} style={BTN("#0a1628")}>🖨 Preview / Print</button>
-                    <button onClick={() => emailDraft(row)} disabled={!emp} style={{ ...BTN("#e8c97a", "#0a1628"), opacity: emp ? 1 : 0.5 }}>✉ Email Draft</button>
+                    <button onClick={() => emailDraft(row)} disabled={!row.workEmail} style={{ ...BTN("#e8c97a", "#0a1628"), opacity: row.workEmail ? 1 : 0.5 }}>✉ Email Draft</button>
                   </div>
                 </div>
               </div>

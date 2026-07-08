@@ -43,6 +43,31 @@ function idTypeLabel(idType: string): string {
   return idType ? `${idType} no.` : "ID no.";
 }
 
+// Best-effort work email guess from the name alone — first two words,
+// lowercased, dot-joined (matches the observed "syed.faizan@think-ai.com"
+// pattern). Purely a starting point: always editable in the review screen.
+function guessEmail(name: string): string {
+  const parts = name.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  const local = parts.slice(0, 2).join(".");
+  return `${local}@think-ai.com`;
+}
+
+// Locate the header row + starting column by searching for a cell that
+// says "Employee ID", instead of assuming row 0 / column 0 — some exports
+// have a leading "Month" row or a blank first column.
+function findHeader(raw: unknown[][]): { rowIdx: number; colOffset: number } | null {
+  for (let r = 0; r < raw.length; r++) {
+    const row = raw[r];
+    for (let c = 0; c < Math.min(row.length, 6); c++) {
+      if (str(row[c]).toLowerCase() === "employee id") {
+        return { rowIdx: r, colOffset: c };
+      }
+    }
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -54,21 +79,35 @@ export async function POST(req: NextRequest) {
     const XLSX = await import("xlsx");
     const buf = Buffer.from(await file.arrayBuffer());
     const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const raw: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
 
-    // Find the header row (the row whose first cell says "Employee ID")
-    const headerIdx = raw.findIndex(row => str(row[0]).toLowerCase() === "employee id");
-    if (headerIdx === -1) {
-      return NextResponse.json({ error: "Could not find the 'Employee ID' header row — is this the standard payroll template?" }, { status: 400 });
+    // Search every sheet for the header row, not just the first — some
+    // workbooks have a cover/summary sheet before the actual data sheet.
+    let raw: unknown[][] = [];
+    let header: { rowIdx: number; colOffset: number } | null = null;
+    for (const sheetName of wb.SheetNames) {
+      const candidate: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: "" });
+      const found = findHeader(candidate);
+      if (found) { raw = candidate; header = found; break; }
     }
 
+    if (!header) {
+      return NextResponse.json({ error: "Could not find an 'Employee ID' column header in this file — is this the standard payroll workbook?" }, { status: 400 });
+    }
+
+    const { rowIdx: headerIdx, colOffset } = header;
+    const at = (row: unknown[], key: keyof typeof COL) => row[COL[key] + colOffset];
+
     const dataRows = raw.slice(headerIdx + 1).filter(row => {
-      const name = str(row[COL.name]);
-      return str(row[COL.employeeId]) !== "" && name !== "" && name.toLowerCase() !== "employee name";
+      const name = str(at(row, "name"));
+      return str(at(row, "employeeId")) !== "" && name !== "" && name.toLowerCase() !== "employee name";
     });
 
-    const rows = dataRows.map(row => {
+    if (dataRows.length === 0) {
+      return NextResponse.json({ error: "Found the header row but no employee rows underneath it — check the file has data below the header." }, { status: 400 });
+    }
+
+    const rows = dataRows.map(fullRow => {
+      const row = fullRow.slice(colOffset);
       const currency = (str(row[COL.currency]) || "SAR").toUpperCase();
       const othersIncome = num(row[COL.othersIncome]);
       const basicSalary = num(row[COL.basicSalary]);
@@ -131,9 +170,12 @@ export async function POST(req: NextRequest) {
       if (toBeTransferred === null) flagged = true;
       if (note) flagged = true;
 
+      const name = str(row[COL.name]);
+
       return {
         employeeIdCode: str(row[COL.employeeId]),
-        name: str(row[COL.name]),
+        name,
+        workEmail: guessEmail(name),
         location: str(row[COL.location]),
         joiningDate: fmtDate(row[COL.joiningDate]),
         employmentType: str(row[COL.employmentType]) || "Full time",
