@@ -3384,11 +3384,13 @@ function ContractsTab({employees,showToast}:{employees:Employee[];showToast:(m:s
 // Data source is the uploaded Excel file only — no lookup/validation against
 // the Team (hr_employees) records, since payroll rows may not exist there yet.
 interface ParsedPayslipRow {
-  employeeIdCode: string; name: string; workEmail: string; location: string; joiningDate: string;
-  employmentType: string; idType: string; idTypeLabel: string; idNumber: string;
-  iban: string; bank: string; contact: string; currency: string;
+  employeeIdCode: string; name: string; workEmail: string; subtitle: string;
+  location: string; joiningDate: string; employmentType: string; qiwaRegistered: boolean;
+  idType: string; idTypeLabel: string; idNumber: string;
+  iban: string; bank: string; contact: string; currency: string; isForeign: boolean;
   earnings: PayslipLine[]; deductions: PayslipLine[]; gross: number;
-  totalDeductions: number; netPay: number; note?: string; flagged: boolean; payPeriod: string;
+  totalDeductions: number; netSalarySar: number; transferAmount: number; gosiEmployer: number;
+  note?: string; reconciliationNote?: string; flagged: boolean; payPeriod: string;
 }
 
 function fmt2(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -3433,18 +3435,22 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
       const deductions = section === "deductions" ? r.deductions.map((l, x) => x === li ? { ...l, amount } : l) : r.deductions;
       const gross = earnings.reduce((s, l) => s + l.amount, 0);
       const totalDeductions = deductions.reduce((s, l) => s + l.amount, 0);
-      return { ...r, earnings, deductions, gross, totalDeductions, netPay: gross - totalDeductions };
+      const netSalarySar = gross - totalDeductions;
+      const transferAmount = r.isForeign ? Math.round((netSalarySar / 3.75) * 100) / 100 : netSalarySar;
+      return { ...r, earnings, deductions, gross, totalDeductions, netSalarySar, transferAmount };
     }));
   }
 
   function preview(row: ParsedPayslipRow) {
     const html = generatePayslipHTML({
-      employeeIdCode: row.employeeIdCode, name: row.name, idTypeLabel: row.idTypeLabel,
+      employeeIdCode: row.employeeIdCode, name: row.name, subtitle: row.subtitle, idTypeLabel: row.idTypeLabel,
       idNumber: row.idNumber, employmentType: row.employmentType, location: row.location,
-      joiningDate: row.joiningDate, payPeriod: row.payPeriod, bank: row.bank, iban: row.iban,
-      contact: row.contact, workEmail: row.workEmail || "— add work email —",
+      joiningDate: row.joiningDate, payPeriod: row.payPeriod, qiwaRegistered: row.qiwaRegistered,
+      bank: row.bank, iban: row.iban, contact: row.contact,
       earnings: row.earnings, deductions: row.deductions, gross: row.gross,
-      totalDeductions: row.totalDeductions, netPay: row.netPay, currency: row.currency, note: row.note,
+      totalDeductions: row.totalDeductions, netSalarySar: row.netSalarySar, transferAmount: row.transferAmount,
+      currency: row.currency, isForeign: row.isForeign, gosiEmployer: row.gosiEmployer,
+      note: row.note, reconciliationNote: row.reconciliationNote,
     });
     const w = window.open("", "_blank");
     if (w) { w.document.write(html); w.document.close(); }
@@ -3453,7 +3459,7 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
   function emailDraft(row: ParsedPayslipRow) {
     if (!row.workEmail) { showToast("Add a work email for this employee before emailing"); return; }
     const subject = `THINK-AI Payslip — ${row.payPeriod}`;
-    const body = `Hi ${row.name.split(" ")[0]},\n\nPlease find attached your payslip for ${row.payPeriod}.\n\nNet pay: ${fmt2(row.netPay)} ${row.currency}\n\n(Remember to attach the downloaded/printed PDF — this draft does not attach it automatically.)\n\nBest,\nTHINK-AI People Team`;
+    const body = `Hi ${row.name.split(" ")[0]},\n\nPlease find attached your payslip for ${row.payPeriod}.\n\nNet pay: ${fmt2(row.transferAmount)} ${row.currency}\n\n(Remember to attach the downloaded/printed PDF — this draft does not attach it automatically.)\n\nBest,\nTHINK-AI People Team`;
     window.location.href = `mailto:${row.workEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
@@ -3500,18 +3506,41 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
                   <div><label style={LABEL}>Employee ID</label><input value={row.employeeIdCode} onChange={e => updateRow(i, { employeeIdCode: e.target.value })} style={INPUT} /></div>
                   <div style={{ gridColumn: "span 2" }}><label style={LABEL}>Name</label><input value={row.name} onChange={e => updateRow(i, { name: e.target.value })} style={INPUT} /></div>
                   <div><label style={LABEL}>Location</label><input value={row.location} onChange={e => updateRow(i, { location: e.target.value })} style={INPUT} /></div>
-                  <div><label style={LABEL}>Employment type</label><input value={row.employmentType} onChange={e => updateRow(i, { employmentType: e.target.value })} style={INPUT} /></div>
+                  <div>
+                    <label style={LABEL}>Employment type</label>
+                    <select value={row.employmentType} onChange={e => updateRow(i, { employmentType: e.target.value })} style={INPUT}>
+                      <option value="Full time">Full time</option>
+                      <option value="Part time">Part time</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={LABEL}>Qiwa registered</label>
+                    <select value={row.qiwaRegistered ? "yes" : "no"} onChange={e => updateRow(i, { qiwaRegistered: e.target.value === "yes" })} style={INPUT}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </select>
+                  </div>
                   <div><label style={LABEL}>Joining date</label><input value={row.joiningDate} onChange={e => updateRow(i, { joiningDate: e.target.value })} style={INPUT} /></div>
                   <div><label style={LABEL}>Pay period</label><input value={row.payPeriod} onChange={e => updateRow(i, { payPeriod: e.target.value })} style={INPUT} /></div>
                   <div><label style={LABEL}>ID type label</label><input value={row.idTypeLabel} onChange={e => updateRow(i, { idTypeLabel: e.target.value })} style={INPUT} /></div>
                   <div><label style={LABEL}>ID number</label><input value={row.idNumber} onChange={e => updateRow(i, { idNumber: e.target.value })} style={INPUT} /></div>
                   <div><label style={LABEL}>Bank</label><input value={row.bank} onChange={e => updateRow(i, { bank: e.target.value })} style={INPUT} /></div>
-                  <div style={{ gridColumn: "span 2" }}><label style={LABEL}>IBAN</label><input value={row.iban} onChange={e => updateRow(i, { iban: e.target.value })} style={INPUT} /></div>
+                  <div style={{ gridColumn: "span 2" }}><label style={LABEL}>IBAN / Account</label><input value={row.iban} onChange={e => updateRow(i, { iban: e.target.value })} style={INPUT} /></div>
                   <div><label style={LABEL}>Contact</label><input value={row.contact} onChange={e => updateRow(i, { contact: e.target.value })} style={INPUT} /></div>
-                  <div><label style={LABEL}>Currency</label><input value={row.currency} onChange={e => updateRow(i, { currency: e.target.value })} style={INPUT} /></div>
-                  <div><label style={LABEL}>Work email</label><input value={row.workEmail} onChange={e => updateRow(i, { workEmail: e.target.value })} style={INPUT} placeholder="name@think-ai.com" /></div>
-                  <div style={{ gridColumn: "span 3" }}><label style={LABEL}>Note (shown on payslip if present)</label><input value={row.note || ""} onChange={e => updateRow(i, { note: e.target.value || undefined })} style={INPUT} /></div>
+                  <div>
+                    <label style={LABEL}>Currency</label>
+                    <input value={row.currency} onChange={e => { const currency = e.target.value.toUpperCase(); const isForeign = currency !== "SAR" && currency !== ""; updateRow(i, { currency, isForeign, transferAmount: isForeign ? Math.round((row.netSalarySar / 3.75) * 100) / 100 : row.netSalarySar }); }} style={INPUT} />
+                  </div>
+                  <div><label style={LABEL}>GOSI employer contribution (SAR, info only)</label><input type="number" step="0.01" value={row.gosiEmployer} onChange={e => updateRow(i, { gosiEmployer: parseFloat(e.target.value) || 0 })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Work email (for the email draft only — not printed)</label><input value={row.workEmail} onChange={e => updateRow(i, { workEmail: e.target.value })} style={INPUT} placeholder="name@think-ai.com" /></div>
+                  <div style={{ gridColumn: "span 3" }}><label style={LABEL}>Remark (shown on payslip if present)</label><input value={row.note || ""} onChange={e => updateRow(i, { note: e.target.value || undefined })} style={INPUT} /></div>
                 </div>
+
+                {row.reconciliationNote && (
+                  <div style={{ fontSize: 12, color: "#7f1d1d", background: "#fef2f2", borderLeft: "3px solid #dc2626", borderRadius: 6, padding: "8px 12px", marginBottom: 12 }}>
+                    <strong>Check before issuing:</strong> {row.reconciliationNote}
+                  </div>
+                )}
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
                   <div>
@@ -3543,11 +3572,12 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
                   <div>
-                    <div style={{ fontSize: 11, color: "#6b7a99", textTransform: "uppercase", letterSpacing: "0.06em" }}>Net Pay Transferred</div>
+                    <div style={{ fontSize: 11, color: "#6b7a99", textTransform: "uppercase", letterSpacing: "0.06em" }}>{row.isForeign ? "Amount Transferred" : "Net Pay Transferred"}</div>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                      <input type="number" step="0.01" value={row.netPay} onChange={e => updateRow(i, { netPay: parseFloat(e.target.value) || 0 })} style={{ ...INPUT, width: 140, fontSize: 20, fontWeight: 800, color: "#2563eb", border: "none", padding: "2px 0" }} />
+                      <input type="number" step="0.01" value={row.transferAmount} onChange={e => updateRow(i, { transferAmount: parseFloat(e.target.value) || 0 })} style={{ ...INPUT, width: 140, fontSize: 20, fontWeight: 800, color: "#2563eb", border: "none", padding: "2px 0" }} />
                       <span style={{ fontSize: 13, color: "#6b7a99" }}>{row.currency}</span>
                     </div>
+                    {row.isForeign && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Net salary {fmt2(row.netSalarySar)} SAR · transferred at SAR 3.75 = 1 {row.currency}</div>}
                   </div>
                   <div style={{ display: "flex", gap: 10 }}>
                     <button onClick={() => preview(row)} style={BTN("#0a1628")}>🖨 Preview / Print</button>

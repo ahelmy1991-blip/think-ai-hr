@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+// Fixed SAR/USD peg used by the payroll sheet for any employee paid in a
+// currency other than SAR — confirmed by back-solving every foreign-currency
+// row in the reference workbook (e.g. 15,225 SAR / 3.75 = 4,060.00 USD exactly).
+const SAR_PEG_RATE = 3.75;
+
 // Fixed column layout of the monthly payroll workbook (0-indexed).
 // Kept index-based (not header-name lookup) because the sheet has two
 // columns both literally named "Others" (income vs. deduction) and two
@@ -25,22 +30,24 @@ function str(v: unknown): string {
   return v == null ? "" : String(v).trim();
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function fmtDate(v: unknown): string {
   if (v instanceof Date && !isNaN(v.getTime())) {
     return v.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   }
   const s = str(v);
-  if (!s) return "";
+  if (!s) return "—";
   const d = new Date(s);
   return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// Matches the source workbook's own wording ("Passport" -> "PASSPORT NO.",
+// "KSA Iqama" -> "KSA IQAMA NO.", "Saudi ID" -> "SAUDI ID NO.").
 function idTypeLabel(idType: string): string {
-  const t = idType.toLowerCase();
-  if (t.includes("passport")) return "Passport no.";
-  if (t.includes("iqama")) return "Iqama no.";
-  if (t.includes("saudi") || t.includes("national")) return "National ID no.";
-  return idType ? `${idType} no.` : "ID no.";
+  return idType ? `${idType.toUpperCase()} NO.` : "ID NO.";
 }
 
 // Best-effort work email guess from the name alone — first two words,
@@ -51,6 +58,14 @@ function guessEmail(name: string): string {
   if (parts.length === 0) return "";
   const local = parts.slice(0, 2).join(".");
   return `${local}@think-ai.com`;
+}
+
+// True when the note describes a partial-period adjustment (mid-month join,
+// half salary, hourly proration) rather than a normal deduction — the source
+// workbook labels "Basic salary" as a full-month reference in these cases.
+function looksPartialPeriod(note: string): boolean {
+  const n = note.toLowerCase();
+  return /partial|half salary|hourly|prorat|start(ing)? date|joined|days deducted/.test(n);
 }
 
 // Locate the header row + starting column by searching for a cell that
@@ -109,89 +124,100 @@ export async function POST(req: NextRequest) {
     const rows = dataRows.map(fullRow => {
       const row = fullRow.slice(colOffset);
       const currency = (str(row[COL.currency]) || "SAR").toUpperCase();
-      const othersIncome = num(row[COL.othersIncome]);
       const basicSalary = num(row[COL.basicSalary]);
       const housing = num(row[COL.housing]);
       const transport = num(row[COL.transport]);
-      const totalIncome = num(row[COL.totalIncome]);
+      const othersIncome = num(row[COL.othersIncome]);
+      const totalIncome = num(row[COL.totalIncome]) || (basicSalary + housing + transport + othersIncome);
       const employeeGosi = num(row[COL.employeeGosi]);
       const advancePayment = num(row[COL.advancePayment]);
       const othersDeduction = num(row[COL.othersDeduction]);
-      const totalDeductions = num(row[COL.totalDeductions]);
-      const netSalaryNative = num(row[COL.netSalaryNative]);
+      const statedTotalDeductions = num(row[COL.totalDeductions]);
+      const statedNetSalary = num(row[COL.netSalaryNative]) || round2(totalIncome - statedTotalDeductions);
+      const gosiEmployer = num(row[COL.gosiEmployer]);
       const toBeTransferredRaw = row[COL.toBeTransferred];
       const toBeTransferred = toBeTransferredRaw != null && str(toBeTransferredRaw) !== "" ? num(toBeTransferredRaw) : null;
+      const qiwaRegistered = str(row[COL.qiwaId]).toLowerCase() === "yes";
       const note = str(row[COL.note]);
+      const partialPeriod = note ? looksPartialPeriod(note) : false;
 
-      let earnings: { label: string; amount: number }[];
-      let deductions: { label: string; amount: number }[];
-      let gross: number;
-      let flagged = false;
+      // Earnings always stay in the sheet's native SAR-tracked figures —
+      // never force-converted into a foreign transfer currency.
+      const earnings = [
+        { label: partialPeriod ? "Basic salary (full-month ref.)" : "Basic salary", amount: basicSalary },
+        { label: "Housing allowance", amount: housing },
+        { label: "Transportation allowance", amount: transport },
+        { label: "Other", amount: othersIncome },
+      ].filter(l => l.amount !== 0);
+      const gross = round2(totalIncome);
 
-      if (currency === "SAR") {
-        // Native currency — every figure already reconciles exactly, no conversion needed.
-        earnings = [
-          { label: "Basic Salary", amount: basicSalary },
-          { label: "Housing Allowance", amount: housing },
-          { label: "Transportation Allowance", amount: transport },
-          { label: "Other", amount: othersIncome },
-        ].filter(l => l.amount !== 0);
+      // Deductions: start from the sheet's own itemized columns.
+      const deductionItems = [
+        { key: "gosi", label: `Employee GOSI${row[COL.gosiPct] ? ` (${(num(row[COL.gosiPct]) < 1 ? num(row[COL.gosiPct]) * 100 : num(row[COL.gosiPct])).toFixed(2).replace(/\.00$/, "")}%)` : ""}`, amount: employeeGosi },
+        { key: "advance", label: "Advance payment recovery", amount: advancePayment },
+        { key: "other", label: partialPeriod ? (note || "Partial-period adjustment") : "Other deduction", amount: othersDeduction },
+      ].filter(l => l.amount !== 0);
+
+      // Reconciliation: if the sheet's own stated deductions don't add up to
+      // its own stated net salary, trust the net salary (the figure that
+      // actually gets wired) and adjust the catch-all "other" deduction line
+      // to match — flagging the discrepancy instead of silently hiding it.
+      let deductions = deductionItems;
+      let reconciliationNote: string | undefined;
+      const impliedTotal = deductionItems.reduce((s, l) => s + l.amount, 0);
+      const neededTotal = round2(gross - statedNetSalary);
+      if (Math.abs(impliedTotal - neededTotal) > 0.01 && statedTotalDeductions > 0) {
+        const fixedOther = round2(neededTotal - employeeGosi - advancePayment);
         deductions = [
-          { label: "GOSI (Employee)", amount: employeeGosi },
-          { label: "Advance Payment", amount: advancePayment },
-          { label: "Other", amount: othersDeduction },
+          ...deductionItems.filter(l => l.key !== "other"),
+          { key: "other", label: partialPeriod ? (note || "Partial-period adjustment") : "Adjustment (see note)", amount: fixedOther },
         ].filter(l => l.amount !== 0);
-        gross = totalIncome;
-      } else {
-        // Paid in a different currency than the sheet's SAR-tracked figures.
-        // Base pay = net transfer amount minus "Others" (Others is carried
-        // over as-is, already in the transfer currency in this sheet).
-        const net = toBeTransferred ?? (totalIncome - totalDeductions);
-        const base = net - othersIncome;
-        earnings = [{ label: "Base pay", amount: base }];
-        if (othersIncome !== 0) earnings.push({ label: "Other", amount: othersIncome });
-        gross = net;
-        if (totalDeductions !== 0) {
-          // Not observed in the reference data (foreign-currency rows had
-          // zero deductions) — surfaced as-is and flagged for manual check.
-          deductions = [
-            { label: "GOSI (Employee)", amount: employeeGosi },
-            { label: "Advance Payment", amount: advancePayment },
-            { label: "Other", amount: othersDeduction },
-          ].filter(l => l.amount !== 0);
-          flagged = true;
-        } else {
-          deductions = [];
-        }
+        reconciliationNote = `Source sheet lists total deductions of SAR ${statedTotalDeductions.toLocaleString(undefined, { minimumFractionDigits: 2 })} but a net of SAR ${statedNetSalary.toLocaleString(undefined, { minimumFractionDigits: 2 })}; this payslip reconciles to the net (adjustment shown as SAR ${fixedOther.toLocaleString(undefined, { minimumFractionDigits: 2 })}). Confirm the correct deduction split before issuing.`;
       }
 
-      const totalDedComputed = deductions.reduce((s, l) => s + l.amount, 0);
-      const netPay = toBeTransferred ?? (gross - totalDedComputed);
-      if (toBeTransferred === null) flagged = true;
-      if (note) flagged = true;
+      const totalDeductions = round2(deductions.reduce((s, l) => s + l.amount, 0));
+      const netSalarySar = round2(gross - totalDeductions);
+
+      // Transfer amount: SAR employees are paid netSalarySar directly.
+      // Foreign-currency employees are paid netSalarySar converted at the
+      // fixed 3.75 peg — preferring the sheet's own stated figure when present.
+      const isForeign = currency !== "SAR" && currency !== "";
+      const transferAmount = isForeign
+        ? (toBeTransferred ?? round2(netSalarySar / SAR_PEG_RATE))
+        : (toBeTransferred ?? netSalarySar);
+
+      const flagged = !!reconciliationNote || (isForeign ? false : toBeTransferred === null && netSalarySar !== 0);
 
       const name = str(row[COL.name]);
+      const employmentType = str(row[COL.employmentType]) || "Full time";
+      const location = str(row[COL.location]);
 
       return {
         employeeIdCode: str(row[COL.employeeId]),
         name,
         workEmail: guessEmail(name),
-        location: str(row[COL.location]),
+        location,
         joiningDate: fmtDate(row[COL.joiningDate]),
-        employmentType: str(row[COL.employmentType]) || "Full time",
+        employmentType,
+        subtitle: [employmentType.toUpperCase(), location.toUpperCase(), qiwaRegistered ? "QIWA REGISTERED" : ""].filter(Boolean).join(" · "),
+        qiwaRegistered,
         idType: str(row[COL.idType]),
         idTypeLabel: idTypeLabel(str(row[COL.idType])),
         idNumber: str(row[COL.idNumber]),
         iban: str(row[COL.iban]),
         bank: str(row[COL.bank]),
         contact: str(row[COL.contact]),
-        currency,
+        currency: isForeign ? currency : "SAR",
+        isForeign,
         earnings,
         deductions,
         gross,
-        totalDeductions: totalDedComputed,
-        netPay,
+        totalDeductions,
+        netSalarySar,
+        transferAmount,
+        gosiEmployer,
         note: note || undefined,
+        reconciliationNote,
         flagged,
         payPeriod: period,
       };
