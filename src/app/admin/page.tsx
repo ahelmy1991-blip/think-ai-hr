@@ -3492,18 +3492,25 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
             return (
               <div key={i} style={CARD}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: "#0a1628" }}>{row.name} <span style={{ color: "#94a3b8", fontWeight: 500, fontSize: 12 }}>· {row.employeeIdCode}</span></div>
-                    <div style={{ fontSize: 12, color: "#6b7a99" }}>{row.location} · {row.employmentType} · {row.currency}</div>
-                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#0a1628" }}>Payslip #{i + 1}</div>
                   {row.flagged && <span style={{ background: "#fef3c7", color: "#92400e", fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20 }}>⚠ Review needed</span>}
                 </div>
 
-                {row.note && <div style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}><strong>Note:</strong> {row.note}</div>}
-
-                <div style={{ marginBottom: 12 }}>
-                  <label style={LABEL}>Work email (auto-suggested from name — edit if wrong)</label>
-                  <input value={row.workEmail} onChange={e => updateRow(i, { workEmail: e.target.value })} style={INPUT} placeholder="name@think-ai.com" />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+                  <div><label style={LABEL}>Employee ID</label><input value={row.employeeIdCode} onChange={e => updateRow(i, { employeeIdCode: e.target.value })} style={INPUT} /></div>
+                  <div style={{ gridColumn: "span 2" }}><label style={LABEL}>Name</label><input value={row.name} onChange={e => updateRow(i, { name: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Location</label><input value={row.location} onChange={e => updateRow(i, { location: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Employment type</label><input value={row.employmentType} onChange={e => updateRow(i, { employmentType: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Joining date</label><input value={row.joiningDate} onChange={e => updateRow(i, { joiningDate: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Pay period</label><input value={row.payPeriod} onChange={e => updateRow(i, { payPeriod: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>ID type label</label><input value={row.idTypeLabel} onChange={e => updateRow(i, { idTypeLabel: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>ID number</label><input value={row.idNumber} onChange={e => updateRow(i, { idNumber: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Bank</label><input value={row.bank} onChange={e => updateRow(i, { bank: e.target.value })} style={INPUT} /></div>
+                  <div style={{ gridColumn: "span 2" }}><label style={LABEL}>IBAN</label><input value={row.iban} onChange={e => updateRow(i, { iban: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Contact</label><input value={row.contact} onChange={e => updateRow(i, { contact: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Currency</label><input value={row.currency} onChange={e => updateRow(i, { currency: e.target.value })} style={INPUT} /></div>
+                  <div><label style={LABEL}>Work email</label><input value={row.workEmail} onChange={e => updateRow(i, { workEmail: e.target.value })} style={INPUT} placeholder="name@think-ai.com" /></div>
+                  <div style={{ gridColumn: "span 3" }}><label style={LABEL}>Note (shown on payslip if present)</label><input value={row.note || ""} onChange={e => updateRow(i, { note: e.target.value || undefined })} style={INPUT} /></div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
