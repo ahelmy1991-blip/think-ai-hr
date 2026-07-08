@@ -168,7 +168,11 @@ export async function POST(req: NextRequest) {
 
     const { map: col, missing } = resolveColumns(raw[headerIdx]);
     if (missing.length > 0) {
-      return NextResponse.json({ error: `Could not find these expected columns in the header row: ${missing.join(", ")}. Check the file hasn't dropped or renamed them.` }, { status: 400 });
+      const detectedHeaders = raw[headerIdx].map(str).filter(s => s !== "");
+      return NextResponse.json({
+        error: `Could not find these expected columns in the header row: ${missing.join(", ")}. Check the file hasn't dropped or renamed them.`,
+        detectedHeaders,
+      }, { status: 400 });
     }
     const at = (row: unknown[], key: ColKey) => (col[key] !== undefined ? row[col[key] as number] : "");
 

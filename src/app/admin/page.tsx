@@ -3400,6 +3400,7 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState("");
+  const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<ParsedPayslipRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -3408,13 +3409,14 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
     if (!period.trim()) { showToast("Please enter the pay period (e.g. June 2026)"); return; }
     setParsing(true);
     setParseError("");
+    setDetectedHeaders([]);
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("period", period.trim());
       const r = await fetch("/api/admin/payroll/parse", { method: "POST", body: fd });
       const data = await r.json();
-      if (!r.ok) { setParseError(data.error || "Failed to parse file"); return; }
+      if (!r.ok) { setParseError(data.error || "Failed to parse file"); setDetectedHeaders(data.detectedHeaders || []); return; }
       setRows(data.rows as ParsedPayslipRow[]);
       showToast(`Parsed ${data.rows.length} payslip${data.rows.length === 1 ? "" : "s"}`);
     } catch (e: unknown) {
@@ -3486,7 +3488,17 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
         </div>
         {parseError && (
           <div style={{ marginTop: 12, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 12, color: "#dc2626" }}>
-            {parseError}
+            <div>{parseError}</div>
+            {detectedHeaders.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Columns actually found in the file&apos;s header row:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {detectedHeaders.map((h, idx) => (
+                    <span key={idx} style={{ background: "white", border: "1px solid #fca5a5", borderRadius: 4, padding: "2px 8px", fontFamily: "monospace" }}>{h}</span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
