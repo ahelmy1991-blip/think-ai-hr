@@ -3395,12 +3395,25 @@ interface ParsedPayslipRow {
 
 function fmt2(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
+const FIELD_LABELS: Record<string, string> = {
+  employeeId: "Employee ID", name: "Name", location: "Location", joiningDate: "Joining Date",
+  employmentType: "Employment Type", qiwaId: "Qiwa Registered", idType: "ID Type", idNumber: "ID Number",
+  iban: "IBAN", bank: "Bank", contact: "Contact", gosiPct: "GOSI %", salaryUsdRef: "Salary USD (ref)",
+  basicSalary: "Basic Salary", housing: "Housing Allowance", transport: "Transportation Allowance",
+  othersIncome: "Other (earning)", totalIncome: "Total Income", employeeGosi: "Employee GOSI",
+  advancePayment: "Advance Payment", othersDeduction: "Other (deduction)", totalDeductions: "Total Deductions",
+  netSalaryNative: "Net Salary", gosiEmployer: "GOSI Employer", payableToGosi: "Payable to GOSI",
+  toBeTransferred: "To be Transferred", currency: "Currency", note: "Note", sarEquivalent: "SAR Equivalent",
+};
+
 function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
   const [period, setPeriod] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState("");
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
+  const [mappedByAI, setMappedByAI] = useState(false);
   const [rows, setRows] = useState<ParsedPayslipRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -3410,6 +3423,7 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
     setParsing(true);
     setParseError("");
     setDetectedHeaders([]);
+    setColumnMapping({});
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -3418,6 +3432,8 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
       const data = await r.json();
       if (!r.ok) { setParseError(data.error || "Failed to parse file"); setDetectedHeaders(data.detectedHeaders || []); return; }
       setRows(data.rows as ParsedPayslipRow[]);
+      setColumnMapping(data.columnMapping || {});
+      setMappedByAI(!!data.mappedByAI);
       showToast(`Parsed ${data.rows.length} payslip${data.rows.length === 1 ? "" : "s"}`);
     } catch (e: unknown) {
       setParseError("Network error: " + (e instanceof Error ? e.message : "Unknown error"));
@@ -3502,6 +3518,22 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
           </div>
         )}
       </div>
+
+      {Object.keys(columnMapping).length > 0 && (
+        <details style={{ ...CARD, cursor: "pointer" }}>
+          <summary style={{ fontSize: 12, fontWeight: 700, color: "#0a1628" }}>
+            {mappedByAI ? "🤖 AI-verified column mapping" : "Column mapping used"} — click to check every field was read from the right column
+          </summary>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 24px", marginTop: 12, fontSize: 12 }}>
+            {Object.entries(FIELD_LABELS).filter(([k]) => columnMapping[k]).map(([k, label]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #f1f5f9", padding: "4px 0" }}>
+                <span style={{ color: "#6b7a99" }}>{label}</span>
+                <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{columnMapping[k]}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {rows.length > 0 && (
         <>

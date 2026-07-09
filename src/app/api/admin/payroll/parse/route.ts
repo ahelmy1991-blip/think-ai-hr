@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import Groq from "groq-sdk";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Fixed SAR/USD peg used by the payroll sheet for any employee paid in a
 // currency other than SAR — confirmed by back-solving every foreign-currency
@@ -15,9 +19,64 @@ type ColKey =
   | "netSalaryNative" | "gosiEmployer" | "payableToGosi" | "toBeTransferred"
   | "currency" | "note" | "sarEquivalent";
 
+const ALL_COL_KEYS: ColKey[] = [
+  "employeeId", "name", "location", "joiningDate", "employmentType", "qiwaId",
+  "idType", "idNumber", "iban", "bank", "contact", "gosiPct", "salaryUsdRef",
+  "basicSalary", "housing", "transport", "othersIncome", "totalIncome",
+  "employeeGosi", "advancePayment", "othersDeduction", "totalDeductions",
+  "netSalaryNative", "gosiEmployer", "payableToGosi", "toBeTransferred",
+  "currency", "note", "sarEquivalent",
+];
+
 // Columns required to produce a usable payslip — everything else degrades
 // gracefully to blank/zero if genuinely absent from a given month's sheet.
 const REQUIRED_COLS: ColKey[] = ["employeeId", "name", "basicSalary", "totalIncome", "totalDeductions", "netSalaryNative"];
+
+const FIELD_DESCRIPTIONS = `- employeeId: the employee's ID/code (e.g. "006")
+- name: employee's full name
+- location: work location/country (e.g. KSA, Pakistan, Tunisia)
+- joiningDate: date joined the company
+- employmentType: "Full time" / "Part time"
+- qiwaId: Qiwa platform registration, Yes/No
+- idType: TEXT label of the ID document type (e.g. "Passport", "KSA Iqama", "Saudi ID") — not the number itself
+- idNumber: the ID/passport/iqama number
+- iban: bank IBAN or account number
+- bank: bank name
+- contact: phone number
+- gosiPct: GOSI contribution percentage rate
+- salaryUsdRef: a reference/target salary already expressed in USD (informational only)
+- basicSalary: basic salary amount, company's internal tracking currency (usually SAR)
+- housing: housing allowance amount
+- transport: transportation allowance amount
+- othersIncome: an extra EARNINGS amount column, appears once among the earnings columns, right before "Total Income"
+- totalIncome: gross/total income for the month before deductions
+- employeeGosi: GOSI amount deducted from the employee
+- advancePayment: advance payment recovered this month
+- othersDeduction: an extra DEDUCTION amount column, appears once among the deduction columns, right before "Total Deductions"
+- totalDeductions: total deductions for the month
+- netSalaryNative: net salary after deductions, in the internal tracking currency (usually SAR)
+- gosiEmployer: the EMPLOYER's (company-paid) GOSI contribution — not deducted from the employee
+- payableToGosi: total amount payable to the GOSI authority
+- toBeTransferred: the actual amount wired to the employee this month, in whatever the "currency" column says
+- currency: currency code of the amount actually transferred (e.g. SAR, USD, GBP)
+- note: free-text remarks about this employee's pay this month
+- sarEquivalent: the transferred amount converted back to a SAR-equivalent figure, for internal reporting`;
+
+const SYSTEM_PROMPT = `You are a meticulous Saudi payroll data analyst. You will be given the first rows of a company payroll spreadsheet as a JSON array of rows (each row is an array of cell values, 0-indexed columns). Some early rows may be titles or blank before the real header row.
+
+Your job:
+1. Identify the 0-based row index of the COLUMN HEADER row (the row containing labels like "Employee ID", "Basic Salary", etc).
+2. Map every column index that corresponds to one of the canonical fields below to its exact field key. Use BOTH the header label text AND the sample values in the rows beneath it — header wording can vary month to month, so infer meaning from context, not just exact text match. Never invent a mapping for a column that doesn't semantically match any canonical field — omit it instead.
+
+Canonical fields:
+${FIELD_DESCRIPTIONS}
+
+Two field keys often share literally identical header text and must be disambiguated by position/content:
+- "employmentType" vs "idType": both may be labeled "Type". employmentType's column contains values like "Full time"/"Part time" and comes BEFORE the Qiwa column. idType's column contains values like "Passport"/"KSA Iqama"/"Saudi ID" and comes AFTER the Qiwa column.
+- "othersIncome" vs "othersDeduction": both may be labeled "Others". othersIncome is among the earnings columns (numeric, small allowance-like values, before "Total Income"). othersDeduction is among the deduction columns (after "Advance Payment", before "Total Deductions").
+
+Respond with ONLY this JSON shape, no markdown, no commentary, no explanation:
+{"headerRowIndex": <int>, "columns": {"<0-based column index as string>": "<fieldKey>", ...}}`;
 
 function num(v: unknown): number {
   if (v == null || v === "") return 0;
@@ -71,13 +130,10 @@ function looksPartialPeriod(note: string): boolean {
   return /partial|half salary|hourly|prorat|start(ing)? date|joined|days deducted/.test(n);
 }
 
-// Resolves each field to a column INDEX by matching header text, instead of
-// assuming a fixed position — the sheet's exact column count/order has
-// changed between months, which silently broke position-based mapping.
-// Two header labels repeat ("Type" for employment type vs. ID type, "Others"
-// for income vs. deduction) and are disambiguated by their position relative
-// to landmark columns (Qiwa ID / Total Income / Advance Payment).
-function resolveColumns(headerRow: unknown[]): { map: Partial<Record<ColKey, number>>; missing: ColKey[] } {
+// Rule-based fallback / gap-filler: resolves columns by exact-ish header text
+// match. Kept as a safety net for when the AI call fails or leaves gaps —
+// verified robust to extra/reordered columns in testing.
+function resolveColumnsRuleBased(headerRow: unknown[]): Partial<Record<ColKey, number>> {
   const cells = headerRow.map(normalizeHeader);
   const findAll = (pred: (c: string) => boolean) => cells.reduce<number[]>((acc, c, i) => (pred(c) ? [...acc, i] : acc), []);
   const find = (pred: (c: string) => boolean) => findAll(pred)[0] ?? -1;
@@ -95,7 +151,7 @@ function resolveColumns(headerRow: unknown[]): { map: Partial<Record<ColKey, num
   const othersIncome = othersIdxs.find(i => totalIncome === -1 || i < totalIncome) ?? othersIdxs[0];
   const othersDeduction = othersIdxs.find(i => advancePayment !== -1 && i > advancePayment) ?? othersIdxs[othersIdxs.length - 1];
 
-  const map: Partial<Record<ColKey, number>> = {
+  return {
     employeeId: set(find(c => c === "employee id")),
     name: set(find(c => c === "employee name")),
     location: set(find(c => c === "location")),
@@ -109,16 +165,16 @@ function resolveColumns(headerRow: unknown[]): { map: Partial<Record<ColKey, num
     contact: set(find(c => c === "contact")),
     gosiPct: set(find(c => c.startsWith("gosi") && c.includes("%"))),
     salaryUsdRef: set(find(c => c.startsWith("salary usd"))),
-    basicSalary: set(find(c => c.startsWith("basic salary"))),
+    basicSalary: set(find(c => c.startsWith("basic salary") || c === "basic")),
     housing: set(find(c => c.startsWith("housing"))),
-    transport: set(find(c => c.startsWith("transportation"))),
+    transport: set(find(c => c.startsWith("transportation") || c.startsWith("transport"))),
     othersIncome: set(othersIncome ?? -1),
-    totalIncome: set(totalIncome),
+    totalIncome: set(totalIncome === -1 ? find(c => c.startsWith("gross")) : totalIncome),
     employeeGosi: set(find(c => c.startsWith("employee gosi"))),
     advancePayment: set(advancePayment),
     othersDeduction: set(othersDeduction ?? -1),
-    totalDeductions: set(find(c => c.startsWith("total deductions"))),
-    netSalaryNative: set(find(c => c.startsWith("net salary"))),
+    totalDeductions: set(find(c => c.startsWith("total deduction"))),
+    netSalaryNative: set(find(c => c.startsWith("net salary") || c.startsWith("net pay") || c.startsWith("net amount"))),
     gosiEmployer: set(find(c => c.startsWith("gosi employer"))),
     payableToGosi: set(find(c => c.startsWith("payable to gosi"))),
     currency: set(find(c => c.startsWith("curran") || c.startsWith("currency"))),
@@ -126,18 +182,63 @@ function resolveColumns(headerRow: unknown[]): { map: Partial<Record<ColKey, num
     sarEquivalent: set(find(c => c.includes("sar") && (c.includes("equilevent") || c.includes("equivalent")))),
     toBeTransferred: set(find(c => c.startsWith("to be transfe") && !c.includes("sar") && !c.includes("equilevent") && !c.includes("equivalent"))),
   };
-
-  const missing = REQUIRED_COLS.filter(k => map[k] === undefined);
-  return { map, missing };
 }
 
-// Locate the header row by searching every cell (not just column 0) for
-// "Employee ID" — some exports have a leading "Month" row or blank column.
-function findHeaderRow(raw: unknown[][]): number {
+// Locate a plausible header row by searching every cell for "Employee ID" —
+// used to pick which sheet to hand to the AI resolver. Not the final word:
+// the AI independently confirms/corrects the header row index too.
+function findHeaderRowHeuristic(raw: unknown[][]): number {
   for (let r = 0; r < raw.length; r++) {
-    if (raw[r].some(c => normalizeHeader(c) === "employee id")) return r;
+    if (raw[r].some(c => normalizeHeader(c).includes("employee id"))) return r;
   }
   return -1;
+}
+
+// AI-based "smart reader": semantically maps columns to canonical fields
+// using both header text and sample data, so month-to-month wording drift
+// (e.g. "Net Salary" vs "Net Pay" vs "Net Amount") doesn't silently break
+// the mapping the way exact-text matching did.
+async function resolveColumnsWithAI(raw: unknown[][]): Promise<{ headerRowIndex: number; map: Partial<Record<ColKey, number>> } | null> {
+  if (!process.env.GROQ_API_KEY) return null;
+  try {
+    const sample = raw.slice(0, 15).map(row =>
+      row.map(c => {
+        if (c instanceof Date) return c.toISOString().slice(0, 10);
+        const s = String(c ?? "");
+        return s.length > 60 ? s.slice(0, 60) : s;
+      })
+    );
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      max_tokens: 1500,
+      temperature: 0,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: JSON.stringify(sample) },
+      ],
+    });
+
+    const raw_ = completion.choices[0]?.message?.content ?? "";
+    const match = raw_.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(match ? match[0] : raw_);
+
+    const headerRowIndex = Number(parsed.headerRowIndex);
+    if (!Number.isInteger(headerRowIndex) || headerRowIndex < 0 || headerRowIndex >= raw.length) return null;
+
+    const validKeys = new Set(ALL_COL_KEYS);
+    const map: Partial<Record<ColKey, number>> = {};
+    for (const [idxStr, key] of Object.entries(parsed.columns || {})) {
+      const idx = Number(idxStr);
+      if (Number.isInteger(idx) && idx >= 0 && typeof key === "string" && validKeys.has(key as ColKey) && map[key as ColKey] === undefined) {
+        map[key as ColKey] = idx;
+      }
+    }
+    return { headerRowIndex, map };
+  } catch (e) {
+    console.error("AI column resolution failed (falling back to rule-based):", e);
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -152,29 +253,50 @@ export async function POST(req: NextRequest) {
     const buf = Buffer.from(await file.arrayBuffer());
     const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
 
-    // Search every sheet for the header row, not just the first — some
-    // workbooks have a cover/summary sheet before the actual data sheet.
+    // Pick the sheet most likely to contain payroll data (heuristic scan),
+    // falling back to the first sheet if nothing obviously matches.
     let raw: unknown[][] = [];
-    let headerIdx = -1;
+    let heuristicHeaderIdx = -1;
     for (const sheetName of wb.SheetNames) {
       const candidate: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: "" });
-      const idx = findHeaderRow(candidate);
-      if (idx !== -1) { raw = candidate; headerIdx = idx; break; }
+      const idx = findHeaderRowHeuristic(candidate);
+      if (idx !== -1) { raw = candidate; heuristicHeaderIdx = idx; break; }
+    }
+    if (raw.length === 0) {
+      raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: "" });
     }
 
-    if (headerIdx === -1) {
+    // Smart (AI) column resolution first; rule-based fills any gaps it leaves
+    // and is the sole fallback if the AI call fails outright.
+    const ai = await resolveColumnsWithAI(raw);
+    let headerIdx: number;
+    let col: Partial<Record<ColKey, number>>;
+
+    if (ai) {
+      headerIdx = ai.headerRowIndex;
+      const ruleMap = resolveColumnsRuleBased(raw[headerIdx]);
+      col = { ...ruleMap, ...ai.map };
+    } else if (heuristicHeaderIdx !== -1) {
+      headerIdx = heuristicHeaderIdx;
+      col = resolveColumnsRuleBased(raw[headerIdx]);
+    } else {
       return NextResponse.json({ error: "Could not find an 'Employee ID' column header in this file — is this the standard payroll workbook?" }, { status: 400 });
     }
 
-    const { map: col, missing } = resolveColumns(raw[headerIdx]);
+    const missing = REQUIRED_COLS.filter(k => col[k] === undefined);
     if (missing.length > 0) {
       const detectedHeaders = raw[headerIdx].map(str).filter(s => s !== "");
       return NextResponse.json({
-        error: `Could not find these expected columns in the header row: ${missing.join(", ")}. Check the file hasn't dropped or renamed them.`,
+        error: `Could not confidently map these required columns: ${missing.join(", ")}. Check the file hasn't dropped or heavily renamed them.`,
         detectedHeaders,
       }, { status: 400 });
     }
+
     const at = (row: unknown[], key: ColKey) => (col[key] !== undefined ? row[col[key] as number] : "");
+    const columnMapping: Record<string, string> = {};
+    for (const key of ALL_COL_KEYS) {
+      if (col[key] !== undefined) columnMapping[key] = str(raw[headerIdx][col[key] as number]);
+    }
 
     const dataRows = raw.slice(headerIdx + 1).filter(row => {
       const name = str(at(row, "name"));
@@ -287,7 +409,7 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ rows });
+    return NextResponse.json({ rows, columnMapping, mappedByAI: !!ai });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     console.error("POST /admin/payroll/parse:", msg);
