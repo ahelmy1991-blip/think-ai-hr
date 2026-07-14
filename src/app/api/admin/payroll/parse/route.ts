@@ -11,6 +11,38 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // row in the reference workbook (e.g. 15,225 SAR / 3.75 = 4,060.00 USD exactly).
 const SAR_PEG_RATE = 3.75;
 
+// ── Saudi compliance constants (GOSI / Nitaqat) ─────────────────────────────
+// Source: THINK-AI's own verified compliance brief (MHRSD/HRSD, Qiwa, GOSI,
+// Mudad — current to mid-2026). GOSI's Saudi-national rate steps up every
+// July under the new Social Insurance Law, so GOSI_NEW_REGIME below is a
+// mid-2026 estimate, not a live-verified figure — re-check gosi.gov.sa before
+// treating a mismatch as definitively wrong.
+const GOSI_BASE_CAP_SAR = 45000; // basic + housing, capped
+const GOSI_NEW_REGIME_CUTOFF = new Date("2024-07-03"); // first-ever GOSI contribution before this date = existing regime
+const GOSI_SAUDI_EXISTING = { employer: 0.1175, employee: 0.0975 }; // 9% retirement + 2% occ. hazard + 0.75% SANED / 9% + 0.75% SANED
+const GOSI_SAUDI_NEW_REGIME_2026 = { employer: 0.1225, employee: 0.1025 }; // existing + 0.5%/side step for 2025→2026 — VERIFY LIVE, increments each July
+const GOSI_EXPAT = { employer: 0.02, employee: 0 }; // occupational hazard only, employer-paid
+const NITAQAT_MIN_WAGE_SAR = 4000; // general Saudi floor to count toward Nitaqat
+const GOSI_RECONCILIATION_TOLERANCE = 5; // SAR — sheet rounding, not flagged below this
+
+type WorkerCategory = "saudi_ksa" | "expat_ksa_visa" | "expat_remote";
+
+function classifyWorker(idType: string, location: string): WorkerCategory {
+  const t = idType.toLowerCase();
+  const loc = location.toLowerCase();
+  if (t.includes("saudi")) return "saudi_ksa";
+  if (t.includes("iqama") && (loc === "ksa" || loc.includes("saudi"))) return "expat_ksa_visa";
+  return "expat_remote";
+}
+
+function parseSheetDate(v: unknown): Date | null {
+  if (v instanceof Date && !isNaN(v.getTime())) return v;
+  const s = str(v);
+  if (!s || s === "—") return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 type ColKey =
   | "employeeId" | "name" | "location" | "joiningDate" | "employmentType" | "qiwaId"
   | "idType" | "idNumber" | "iban" | "bank" | "contact" | "gosiPct" | "salaryUsdRef"
@@ -372,11 +404,73 @@ export async function POST(req: NextRequest) {
         ? (toBeTransferred ?? round2(netSalarySar / SAR_PEG_RATE))
         : (toBeTransferred ?? netSalarySar);
 
-      const flagged = !!reconciliationNote || (isForeign ? false : toBeTransferred === null && netSalarySar !== 0);
-
       const name = str(at(row, "name"));
       const employmentType = str(at(row, "employmentType")) || "Full time";
       const location = str(at(row, "location"));
+      const idTypeRaw = str(at(row, "idType"));
+      const isPartTime = employmentType.toLowerCase().includes("part");
+
+      // ── Compliance classification ────────────────────────────────────
+      const workerCategory = classifyWorker(idTypeRaw, location);
+      const categoryLabel = {
+        saudi_ksa: "Saudi National — THINK-AI KSA entity",
+        expat_ksa_visa: "Expatriate — KSA entity, work visa (Iqama)",
+        expat_remote: "Expatriate — remote, home country (no KSA visa)",
+      }[workerCategory];
+
+      const gosiBase = round2(Math.min(basicSalary + housing, GOSI_BASE_CAP_SAR));
+      let gosiRegimeNote: string | undefined;
+      let expectedEmployeeGosi = 0;
+      let expectedEmployerGosi = 0;
+
+      if (workerCategory === "saudi_ksa") {
+        const joinDate = parseSheetDate(at(row, "joiningDate"));
+        const newRegime = !joinDate || joinDate >= GOSI_NEW_REGIME_CUTOFF;
+        const rate = newRegime ? GOSI_SAUDI_NEW_REGIME_2026 : GOSI_SAUDI_EXISTING;
+        expectedEmployeeGosi = round2(gosiBase * rate.employee);
+        expectedEmployerGosi = round2(gosiBase * rate.employer);
+        gosiRegimeNote = newRegime
+          ? `Saudi — new GOSI regime (post-3-Jul-2024): employee ${(rate.employee * 100).toFixed(2)}% / employer ${(rate.employer * 100).toFixed(2)}% of basic+housing (capped ${GOSI_BASE_CAP_SAR.toLocaleString()}). Rate steps up each July — verify current % on gosi.gov.sa.`
+          : `Saudi — existing GOSI regime (pre-3-Jul-2024): employee ${(rate.employee * 100).toFixed(2)}% / employer ${(rate.employer * 100).toFixed(2)}% of basic+housing (capped ${GOSI_BASE_CAP_SAR.toLocaleString()}).`;
+      } else if (workerCategory === "expat_ksa_visa") {
+        expectedEmployeeGosi = 0;
+        expectedEmployerGosi = round2(gosiBase * GOSI_EXPAT.employer);
+        gosiRegimeNote = `Expatriate on KSA payroll — GOSI is employer-paid only (${(GOSI_EXPAT.employer * 100).toFixed(0)}% occupational hazard), no employee deduction, no pension/unemployment accrual.`;
+      } else {
+        gosiRegimeNote = "Remote/home-country employee — not GOSI-registered in KSA (no Saudi employment relationship for social-insurance purposes).";
+      }
+
+      const gosiFlags: string[] = [];
+      if (workerCategory !== "expat_remote") {
+        if (Math.abs(employeeGosi - expectedEmployeeGosi) > GOSI_RECONCILIATION_TOLERANCE) {
+          gosiFlags.push(`Employee GOSI in sheet (SAR ${employeeGosi.toLocaleString(undefined, { minimumFractionDigits: 2 })}) doesn't match the expected ${gosiBase.toLocaleString()} × rate = SAR ${expectedEmployeeGosi.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`);
+        }
+        if (Math.abs(gosiEmployer - expectedEmployerGosi) > GOSI_RECONCILIATION_TOLERANCE) {
+          gosiFlags.push(`Employer GOSI in sheet (SAR ${gosiEmployer.toLocaleString(undefined, { minimumFractionDigits: 2 })}) doesn't match the expected SAR ${expectedEmployerGosi.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`);
+        }
+      }
+
+      // WPS/Mudad only covers KSA-payroll employees paid in SAR via a local IBAN.
+      const wpsNote = workerCategory === "expat_remote"
+        ? "Outside WPS/Mudad scope — international payment to a non-KSA bank account, not a Saudi labor-law employment relationship."
+        : "Subject to WPS: must be paid in SAR via a KSA-bank IBAN in the employee's name, reported on the monthly Mudad wage file.";
+
+      // Nitaqat only counts Saudi nationals paid via KSA payroll, at/above the wage floor.
+      let nitaqatNote: string | undefined;
+      if (workerCategory === "saudi_ksa") {
+        const belowFloor = basicSalary > 0 && basicSalary < NITAQAT_MIN_WAGE_SAR;
+        if (belowFloor) {
+          nitaqatNote = `⚠ Basic salary (SAR ${basicSalary.toLocaleString()}) is below the SAR ${NITAQAT_MIN_WAGE_SAR.toLocaleString()}/month Nitaqat floor — counts as 0.5 or not at all. Some professions (e.g. engineering) have a higher floor (SAR 8,000) not derivable from this sheet — verify by role.`;
+        } else if (isPartTime) {
+          nitaqatNote = "Part-time Saudi — counts as 0.5 toward Nitaqat if hours are ≥50% of full-time / ≥160 hrs per month (verify actual hours worked).";
+        } else if (!qiwaRegistered) {
+          nitaqatNote = "⚠ Not marked Qiwa-registered — a Saudi employee without a digitally countersigned Qiwa contract does not count toward Nitaqat.";
+        } else {
+          nitaqatNote = "Meets the general wage floor and is Qiwa-registered — counts toward Nitaqat (subject to profession-level quota rules not derivable from payroll data alone).";
+        }
+      }
+
+      const flagged = !!reconciliationNote || gosiFlags.length > 0 || (isForeign ? false : toBeTransferred === null && netSalarySar !== 0);
 
       return {
         employeeIdCode: str(at(row, "employeeId")),
@@ -406,6 +500,12 @@ export async function POST(req: NextRequest) {
         reconciliationNote,
         flagged,
         payPeriod: period,
+        workerCategory,
+        categoryLabel,
+        gosiRegimeNote,
+        gosiFlags,
+        wpsNote,
+        nitaqatNote,
       };
     });
 

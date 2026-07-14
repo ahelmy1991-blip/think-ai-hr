@@ -3383,6 +3383,8 @@ function ContractsTab({employees,showToast}:{employees:Employee[];showToast:(m:s
 // ── Payroll & Payslips ────────────────────────────────────────────────────────
 // Data source is the uploaded Excel file only — no lookup/validation against
 // the Team (hr_employees) records, since payroll rows may not exist there yet.
+type WorkerCategory = "saudi_ksa" | "expat_ksa_visa" | "expat_remote";
+
 interface ParsedPayslipRow {
   employeeIdCode: string; name: string; workEmail: string; subtitle: string;
   location: string; joiningDate: string; employmentType: string; qiwaRegistered: boolean;
@@ -3391,7 +3393,15 @@ interface ParsedPayslipRow {
   earnings: PayslipLine[]; deductions: PayslipLine[]; gross: number;
   totalDeductions: number; netSalarySar: number; transferAmount: number; gosiEmployer: number;
   note?: string; reconciliationNote?: string; flagged: boolean; payPeriod: string;
+  workerCategory: WorkerCategory; categoryLabel: string; gosiRegimeNote?: string;
+  gosiFlags: string[]; wpsNote: string; nitaqatNote?: string;
 }
+
+const CATEGORY_LABELS: Record<WorkerCategory, string> = {
+  saudi_ksa: "Saudi National — KSA entity",
+  expat_ksa_visa: "Expatriate — work visa (Iqama)",
+  expat_remote: "Expatriate — remote, home country",
+};
 
 function fmt2(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
@@ -3469,6 +3479,8 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
       totalDeductions: row.totalDeductions, netSalarySar: row.netSalarySar, transferAmount: row.transferAmount,
       currency: row.currency, isForeign: row.isForeign, gosiEmployer: row.gosiEmployer,
       note: row.note, reconciliationNote: row.reconciliationNote,
+      categoryLabel: row.categoryLabel, gosiRegimeNote: row.gosiRegimeNote,
+      wpsNote: row.wpsNote, nitaqatNote: row.nitaqatNote, gosiFlags: row.gosiFlags,
     });
     const w = window.open("", "_blank");
     if (w) { w.document.write(html); w.document.close(); }
@@ -3535,8 +3547,36 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
         </details>
       )}
 
-      {rows.length > 0 && (
+      {rows.length > 0 && (() => {
+        const saudiCount = rows.filter(r => r.workerCategory === "saudi_ksa").length;
+        const visaCount = rows.filter(r => r.workerCategory === "expat_ksa_visa").length;
+        const remoteCount = rows.filter(r => r.workerCategory === "expat_remote").length;
+        const ksaHeadcount = saudiCount + visaCount;
+        const nitaqatRatio = ksaHeadcount > 0 ? (saudiCount / ksaHeadcount) * 100 : 0;
+        const totalEmployerGosi = rows.reduce((s, r) => s + (r.gosiEmployer || 0), 0);
+        const totalEmployeeGosi = rows.reduce((s, r) => s + r.deductions.filter(l => l.label.startsWith("Employee GOSI")).reduce((a, l) => a + l.amount, 0), 0);
+        const flaggedCount = rows.filter(r => r.flagged).length;
+        return (
         <>
+          <div style={{ ...CARD, background: "#0a1628", color: "white" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#e8c97a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>Compliance Summary — {rows[0]?.payPeriod}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, marginBottom: 16 }}>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{rows.length}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Total headcount</div></div>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{saudiCount}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Saudi (KSA)</div></div>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{visaCount}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Expat + visa</div></div>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{remoteCount}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Expat remote</div></div>
+              <div><div style={{ fontSize: 22, fontWeight: 800, color: nitaqatRatio > 0 && nitaqatRatio < 100 ? "#e8c97a" : "white" }}>{ksaHeadcount > 0 ? nitaqatRatio.toFixed(1) + "%" : "—"}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Rough Saudi % of KSA HC</div></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 14 }}>
+              <div><div style={{ fontSize: 15, fontWeight: 700 }}>SAR {totalEmployeeGosi.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Employee GOSI (deducted)</div></div>
+              <div><div style={{ fontSize: 15, fontWeight: 700 }}>SAR {totalEmployerGosi.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Employer GOSI (company cost)</div></div>
+              <div><div style={{ fontSize: 15, fontWeight: 700, color: flaggedCount > 0 ? "#f87171" : "white" }}>{flaggedCount}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Payslips flagged for review</div></div>
+            </div>
+            <div style={{ fontSize: 11, color: "#8fa3c9", marginTop: 16, borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 12, lineHeight: 1.7 }}>
+              This is a payroll-file-derived estimate, not the official Nitaqat/GOSI calculation. Before relying on it: (1) run the real ratio on the <b>Qiwa Nitaqat calculator</b> against THINK-AI's actual ISIC code — profession-level quotas (e.g. 30% for 5+ engineers) aren't derivable from payroll data alone; (2) confirm GOSI amounts on <b>gosi.gov.sa</b> and pay by the <b>15th</b>; (3) upload the WPS wage file to <b>Mudad</b> for every SAR-paid KSA employee; (4) remote/no-visa expats are excluded from GOSI, WPS and Nitaqat entirely — confirm that basis is still correct for each of them.
+            </div>
+          </div>
+
           <div style={SECTION_HEADING}>Generated Payslips ({rows.length}) — review before sending</div>
           {rows.map((row, i) => {
             return (
@@ -3544,6 +3584,19 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, color: "#0a1628" }}>Payslip #{i + 1}</div>
                   {row.flagged && <span style={{ background: "#fef3c7", color: "#92400e", fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20 }}>⚠ Review needed</span>}
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={LABEL}>Worker category (drives GOSI / WPS / Nitaqat treatment below — verify before relying on it)</label>
+                  <select
+                    value={row.workerCategory}
+                    onChange={e => { const workerCategory = e.target.value as WorkerCategory; updateRow(i, { workerCategory, categoryLabel: CATEGORY_LABELS[workerCategory] }); }}
+                    style={{ ...INPUT, fontWeight: 700 }}
+                  >
+                    <option value="saudi_ksa">{CATEGORY_LABELS.saudi_ksa}</option>
+                    <option value="expat_ksa_visa">{CATEGORY_LABELS.expat_ksa_visa}</option>
+                    <option value="expat_remote">{CATEGORY_LABELS.expat_remote}</option>
+                  </select>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -3585,6 +3638,30 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
                     <strong>Check before issuing:</strong> {row.reconciliationNote}
                   </div>
                 )}
+
+                {row.gosiFlags.length > 0 && (
+                  <div style={{ fontSize: 12, color: "#7f1d1d", background: "#fef2f2", borderLeft: "3px solid #dc2626", borderRadius: 6, padding: "8px 12px", marginBottom: 12 }}>
+                    <strong>GOSI check:</strong> {row.gosiFlags.join(" ")}
+                  </div>
+                )}
+
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, color: "#6b7a99", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 10 }}>Saudi Labor Law Compliance (verify before issuing)</div>
+                  <div style={{ marginBottom: 4 }}>
+                    <label style={{ ...LABEL, fontSize: 10 }}>GOSI</label>
+                    <input value={row.gosiRegimeNote || ""} onChange={e => updateRow(i, { gosiRegimeNote: e.target.value || undefined })} style={{ ...INPUT, fontSize: 11, padding: "5px 8px" }} />
+                  </div>
+                  <div style={{ marginBottom: 4 }}>
+                    <label style={{ ...LABEL, fontSize: 10 }}>WPS / Mudad</label>
+                    <input value={row.wpsNote} onChange={e => updateRow(i, { wpsNote: e.target.value })} style={{ ...INPUT, fontSize: 11, padding: "5px 8px" }} />
+                  </div>
+                  {row.workerCategory === "saudi_ksa" && (
+                    <div>
+                      <label style={{ ...LABEL, fontSize: 10 }}>Nitaqat</label>
+                      <input value={row.nitaqatNote || ""} onChange={e => updateRow(i, { nitaqatNote: e.target.value || undefined })} style={{ ...INPUT, fontSize: 11, padding: "5px 8px" }} />
+                    </div>
+                  )}
+                </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
                   <div>
@@ -3632,7 +3709,8 @@ function PayrollTab({ showToast }: { showToast: (m: string) => void }) {
             );
           })}
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }

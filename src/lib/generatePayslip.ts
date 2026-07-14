@@ -26,6 +26,11 @@ export interface PayslipData {
   note?: string;
   reconciliationNote?: string;
   transferReference?: string;
+  categoryLabel?: string;
+  gosiRegimeNote?: string;
+  wpsNote?: string;
+  nitaqatNote?: string;
+  gosiFlags?: string[];
 }
 
 const NAVY = "#0a1628";
@@ -111,6 +116,12 @@ table.lines tr.total td { border-top: 2px solid ${NAVY}; border-bottom: none; fo
 .warn-box { margin-top: 12px; padding: 12px 16px; background: #fef2f2; border-left: 3px solid #dc2626; font-size: 12px; color: #7f1d1d; }
 .warn-box strong { color: #991b1b; }
 
+.compliance { margin-top: 20px; padding: 14px 16px; background: #f8fafc; border: 1px solid #eef1f6; border-radius: 8px; }
+.compliance-head { font-family: Arial, sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #8b93a7; margin-bottom: 8px; }
+.compliance-row { font-size: 11px; color: #475569; line-height: 1.6; margin-bottom: 4px; }
+.compliance-row b { color: ${NAVY}; }
+.compliance-row.warn { color: #92400e; }
+
 .footer { margin-top: 26px; border-top: 1px solid #eef1f6; padding: 12px 40px 20px; font-size: 11px; color: #94a3b8; }
 .footer-row { display: flex; justify-content: space-between; }
 .footer-gosi { margin-top: 6px; color: #a3adc2; }
@@ -177,6 +188,16 @@ table.lines tr.total td { border-top: 2px solid ${NAVY}; border-bottom: none; fo
 
     ${d.note ? `<div class="remark-box"><strong>Remark:</strong> ${d.note}</div>` : ""}
     ${d.reconciliationNote ? `<div class="warn-box"><strong>Check before issuing:</strong> ${d.reconciliationNote}</div>` : ""}
+
+    ${(d.categoryLabel || d.gosiRegimeNote || d.wpsNote || d.nitaqatNote) ? `
+    <div class="compliance">
+      <div class="compliance-head">Saudi Labor Law Compliance</div>
+      ${d.categoryLabel ? `<div class="compliance-row"><b>Basis:</b> ${d.categoryLabel}</div>` : ""}
+      ${d.gosiRegimeNote ? `<div class="compliance-row"><b>GOSI:</b> ${d.gosiRegimeNote}</div>` : ""}
+      ${d.wpsNote ? `<div class="compliance-row"><b>WPS / Mudad:</b> ${d.wpsNote}</div>` : ""}
+      ${d.nitaqatNote ? `<div class="compliance-row"><b>Nitaqat:</b> ${d.nitaqatNote}</div>` : ""}
+    </div>` : ""}
+    ${d.gosiFlags && d.gosiFlags.length > 0 ? `<div class="warn-box"><strong>GOSI check:</strong> ${d.gosiFlags.join(" ")}</div>` : ""}
   </div>
 
   <div class="footer">
